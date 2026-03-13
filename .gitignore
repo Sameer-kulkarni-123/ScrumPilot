@@ -4,3 +4,4 @@
 temp/
 google_session/
 chrome_bot_profile/
+__pycache__/
