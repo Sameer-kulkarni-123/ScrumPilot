@@ -11,5 +11,6 @@ def transcribe_audio_from_path(filename: str):
 
 
 if __name__ == '__main__':
-  test_filename = r"backend\speech\temp\meeting_audio.wav"
-  transcribe_audio_from_path(test_filename)
+  test_filename = r"backend\speech\whisperai\temp\meeting_audio.wav"
+  text = transcribe_audio_from_path(test_filename)
+  print(text)
