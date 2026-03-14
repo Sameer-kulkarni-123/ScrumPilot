@@ -15,7 +15,7 @@ print("Device info:", device)
 RATE = int(device["defaultSampleRate"])
 CHANNELS = device["maxInputChannels"]
 CHUNK = 1024
-SECONDS = 10
+SECONDS = 100
 
 OUTPUT = "PyAudioWPatchTest_sound.wav"
 
