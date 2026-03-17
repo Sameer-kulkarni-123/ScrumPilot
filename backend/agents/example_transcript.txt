@@ -1,0 +1,17 @@
+Sameer: Good morning everyone, let's start the standup. I'll go first. Yesterday I completed the login page UI task. It's fully done and ready for review.
+
+Alex: Nice! I've been working on the API integration module. I'm still in progress on that. Also, I think we need to create a new task for writing unit tests for the authentication service.
+
+Priya: I agree with Alex on the testing task. For my update, I finished the database schema migration task yesterday. Today I'm going to pick up the user profile page.
+
+Sameer: Great. Alex, can you also take ownership of the payment gateway integration task? I'll assign that to you.
+
+Alex: Sure, I can handle that. Also, can someone add a comment on the API integration ticket that we decided to use REST instead of GraphQL?
+
+Priya: I'll note that down. Oh, and one more thing — the bug fix for the notification service is done. I completed that last night.
+
+Sameer: Perfect. Let me also create a task for setting up the CI/CD pipeline. That's becoming a priority. The description should be "Configure GitHub Actions for automated testing and deployment to staging environment."
+
+Alex: Agreed. I think we should also mark the old deployment script task as done since we're moving to CI/CD.
+
+Sameer: Right, good call. I think that covers everything. Let's sync again tomorrow.
