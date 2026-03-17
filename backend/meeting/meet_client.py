@@ -171,8 +171,8 @@ async def join_meeting(meet_link):
                         elapsed = int(time.time() - alone_since)
                         print(f"[BOT DEBUG] Bot IS ALONE. Total alone time: {elapsed}s", flush=True)
                         
-                        if elapsed >= 10:
-                            print("Bot has been alone for 10 seconds. Leaving meeting.", flush=True)
+                        if elapsed >= 30:
+                            print("Bot has been alone for 30 seconds. Leaving meeting.", flush=True)
                             break
                     else:
                         alone_since = None
