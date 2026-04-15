@@ -1,0 +1,43 @@
+{
+  "pipeline_id": "20260411_002838",
+  "start_time": "2026-04-11T00:28:38.009706",
+  "end_time": "2026-04-11T00:28:39.163073",
+  "status": "failed",
+  "current_phase": "pm_extraction",
+  "phases": [
+    {
+      "phase": "validation",
+      "status": "completed",
+      "success": true,
+      "output_file": null,
+      "error": null,
+      "duration_seconds": 0.0011744499206542969,
+      "timestamp": "2026-04-11T00:28:38.011526"
+    },
+    {
+      "phase": "pm_extraction",
+      "status": "failed",
+      "success": false,
+      "output_file": null,
+      "error": "'BacklogExtractorAgent' object has no attribute 'load_transcript'",
+      "duration_seconds": 1.1483592987060547,
+      "timestamp": "2026-04-11T00:28:38.013905"
+    }
+  ],
+  "pm_transcript_path": "backend/data/pm_meetings/example_pm_transcript.txt",
+  "grooming_transcript_path": "backend/data/grooming_meetings/example_grooming_transcript.txt",
+  "pm_extraction_file": null,
+  "grooming_extraction_file": null,
+  "wsjf_calculation_file": null,
+  "decomposition_file": null,
+  "jira_creation_file": null,
+  "total_epics": 0,
+  "total_stories": 0,
+  "total_tasks": 0,
+  "jira_items_created": 0,
+  "errors": [
+    "pm_extraction: 'BacklogExtractorAgent' object has no attribute 'load_transcript'",
+    "'BacklogExtractorAgent' object has no attribute 'load_transcript'"
+  ],
+  "warnings": []
+}

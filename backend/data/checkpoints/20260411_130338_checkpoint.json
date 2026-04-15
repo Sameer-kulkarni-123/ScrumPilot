@@ -1,0 +1,76 @@
+{
+  "pipeline_id": "20260411_130338",
+  "start_time": "2026-04-11T13:03:38.823424",
+  "end_time": "2026-04-11T13:04:00.195440",
+  "status": "completed",
+  "current_phase": "complete",
+  "phases": [
+    {
+      "phase": "validation",
+      "status": "completed",
+      "success": true,
+      "output_file": null,
+      "error": null,
+      "duration_seconds": 3.867765188217163,
+      "timestamp": "2026-04-11T13:03:38.828613"
+    },
+    {
+      "phase": "pm_extraction",
+      "status": "completed",
+      "success": true,
+      "output_file": "backend\\data\\pm_meetings\\2026-04-11_extracted_epics.json",
+      "error": null,
+      "duration_seconds": 2.2179794311523438,
+      "timestamp": "2026-04-11T13:03:42.698501"
+    },
+    {
+      "phase": "grooming_extraction",
+      "status": "completed",
+      "success": true,
+      "output_file": "backend\\data\\grooming_meetings\\2026-04-11_grooming_data.json",
+      "error": null,
+      "duration_seconds": 2.2417895793914795,
+      "timestamp": "2026-04-11T13:03:44.918641"
+    },
+    {
+      "phase": "wsjf_calculation",
+      "status": "completed",
+      "success": true,
+      "output_file": "backend/data/wsjf/2026-04-11_wsjf_scores.json",
+      "error": null,
+      "duration_seconds": 0.027375221252441406,
+      "timestamp": "2026-04-11T13:03:47.161844"
+    },
+    {
+      "phase": "decomposition",
+      "status": "completed",
+      "success": true,
+      "output_file": "backend/data/decomposed/2026-04-11_decomposed_backlog.json",
+      "error": null,
+      "duration_seconds": 11.816415071487427,
+      "timestamp": "2026-04-11T13:03:47.190955"
+    },
+    {
+      "phase": "jira_creation",
+      "status": "completed",
+      "success": true,
+      "output_file": "backend/data/jira/2026-04-11_jira_creation.json",
+      "error": null,
+      "duration_seconds": 1.1255009174346924,
+      "timestamp": "2026-04-11T13:03:59.041563"
+    }
+  ],
+  "pm_transcript_path": "backend/data/pm_meetings/example_pm_transcript.txt",
+  "grooming_transcript_path": "backend/data/grooming_meetings/example_grooming_transcript.txt",
+  "pm_extraction_file": "backend\\data\\pm_meetings\\2026-04-11_extracted_epics.json",
+  "grooming_extraction_file": "backend\\data\\grooming_meetings\\2026-04-11_grooming_data.json",
+  "wsjf_calculation_file": "backend/data/wsjf/2026-04-11_wsjf_scores.json",
+  "decomposition_file": "backend/data/decomposed/2026-04-11_decomposed_backlog.json",
+  "jira_creation_file": "backend/data/jira/2026-04-11_jira_creation.json",
+  "total_epics": 4,
+  "total_stories": 16,
+  "total_tasks": 48,
+  "jira_items_created": 68,
+  "errors": [],
+  "warnings": []
+}

@@ -1,0 +1,43 @@
+{
+  "meeting_date": "2026-04-11",
+  "meeting_type": "sprint_grooming",
+  "epic_estimates": [
+    {
+      "epic_reference": "auth system",
+      "epic_id": "epic_001",
+      "epic_title": "User Authentication System",
+      "time_criticality": 8,
+      "risk_reduction": 6,
+      "effort": 5,
+      "confidence": "high"
+    },
+    {
+      "epic_reference": "payment gateway",
+      "epic_id": "epic_002",
+      "epic_title": "Payment Gateway Integration",
+      "time_criticality": 9,
+      "risk_reduction": 4,
+      "effort": 3,
+      "confidence": "high"
+    },
+    {
+      "epic_reference": "admin dashboard",
+      "epic_id": "epic_003",
+      "epic_title": "Admin Dashboard",
+      "time_criticality": 5,
+      "risk_reduction": 3,
+      "effort": 7,
+      "confidence": "high"
+    },
+    {
+      "epic_reference": "email notification system",
+      "epic_id": "epic_004",
+      "epic_title": "Email Notification System",
+      "time_criticality": 6,
+      "risk_reduction": 2,
+      "effort": 4,
+      "confidence": "high"
+    }
+  ],
+  "missing_epics": []
+}

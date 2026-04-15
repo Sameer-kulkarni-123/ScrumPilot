@@ -1,0 +1,45 @@
+[
+  {
+    "action": "complete_task",
+    "summary": "Stripe payment gateway API setup",
+    "status": "Done"
+  },
+  {
+    "action": "update_status",
+    "summary": "Credit card payment form and validation",
+    "assignee": "Tom",
+    "status": "In Progress"
+  },
+  {
+    "action": "update_status",
+    "summary": "Subscription management UI",
+    "assignee": "Mike",
+    "status": "In Progress"
+  },
+  {
+    "action": "update_status",
+    "summary": "Stripe subscription API integration",
+    "assignee": "Mike",
+    "status": "To Do"
+  },
+  {
+    "action": "update_status",
+    "summary": "Payment event processing and notification",
+    "assignee": "Alice",
+    "status": "In Progress"
+  },
+  {
+    "action": "update_status",
+    "summary": "Payment processing and error handling",
+    "assignee": "Sarah",
+    "status": "In Progress"
+  },
+  {
+    "action": "add_comment",
+    "comment": "Blocker: Stripe API keys needed for subscription testing"
+  },
+  {
+    "action": "add_comment",
+    "comment": "Blocker: UX copy needed for error messages"
+  }
+]

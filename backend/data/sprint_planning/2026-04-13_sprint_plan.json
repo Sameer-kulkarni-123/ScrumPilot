@@ -1,0 +1,76 @@
+{
+  "sprint_goal": "Complete user authentication system (production-ready)",
+  "sprint_number": 24,
+  "sprint_duration_weeks": 2,
+  "start_date": "2026-04-14",
+  "end_date": "2026-04-25",
+  "team_capacity": {
+    "total_hours": 320,
+    "team_size": 5,
+    "velocity_last_sprint": 31,
+    "availability_notes": "Bob is on PTO for 3 days"
+  },
+  "commitment": {
+    "story_ids": [
+      "SP-198",
+      "SP-202",
+      "SP-207",
+      "SP-188"
+    ],
+    "story_points": 31,
+    "estimated_hours": 180
+  },
+  "developer_assignments": [
+    {
+      "developer_name": "Sarah",
+      "story_ids": [
+        "SP-188"
+      ],
+      "task_ids": [],
+      "estimated_hours": 80
+    },
+    {
+      "developer_name": "Mike",
+      "story_ids": [
+        "SP-198",
+        "SP-202"
+      ],
+      "task_ids": [],
+      "estimated_hours": 60
+    },
+    {
+      "developer_name": "Alice",
+      "story_ids": [
+        "SP-207"
+      ],
+      "task_ids": [],
+      "estimated_hours": 40
+    },
+    {
+      "developer_name": "Tom",
+      "story_ids": [
+        "SP-198",
+        "SP-202",
+        "SP-207",
+        "SP-188"
+      ],
+      "task_ids": [
+        "SP-189",
+        "SP-190",
+        "SP-191"
+      ],
+      "estimated_hours": null
+    }
+  ],
+  "risks_identified": [
+    "Dependency on DevOps team to set up OAuth callback URLs",
+    "SendGrid API being flaky",
+    "Design team not finalizing OAuth button styles"
+  ],
+  "dependencies": [
+    "DevOps team setting up OAuth callback URLs",
+    "SendGrid API",
+    "Design team finalizing OAuth button styles"
+  ],
+  "notes": "Mid-sprint check-in on Wednesday to ensure OAuth callback URLs are set up"
+}

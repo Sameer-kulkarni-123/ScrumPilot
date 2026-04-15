@@ -1,7 +1,39 @@
+# Virtual Environment
 .venv/
+venv/
+
+# IDE
 .vscode/
+.idea/
+
+# Environment Variables (CRITICAL - Contains API keys!)
 .env
+
+# Temporary directories
 temp/
 google_session/
 chrome_bot_profile/
+
+# Python
 __pycache__/
+*.pyc
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Audio files (can be large)
+*.wav
+*.mp3
+backend/data/meetings/*.wav
+backend/data/meetings/*.mp3
+
+# Checkpoints (generated data)
+backend/data/checkpoints/*.json

@@ -1,0 +1,47 @@
+[
+  {
+    "action": "complete_task",
+    "summary": "login page UI task"
+  },
+  {
+    "action": "update_status",
+    "summary": "API integration module",
+    "status": "In Progress"
+  },
+  {
+    "action": "create_task",
+    "summary": "unit tests for authentication service"
+  },
+  {
+    "action": "complete_task",
+    "summary": "database schema migration task"
+  },
+  {
+    "action": "update_status",
+    "summary": "user profile page",
+    "status": "In Progress"
+  },
+  {
+    "action": "assign_task",
+    "summary": "payment gateway integration task",
+    "assignee": "Vavav"
+  },
+  {
+    "action": "add_comment",
+    "summary": "API integration ticket",
+    "comment": "use REST instead of GraphQL"
+  },
+  {
+    "action": "complete_task",
+    "summary": "bug fix for the notification service"
+  },
+  {
+    "action": "create_task",
+    "summary": "setting up the CI-CD pipeline",
+    "description": "configured GitHub actions for automated testing and deployment to staging environment"
+  },
+  {
+    "action": "complete_task",
+    "summary": "old deployment script task"
+  }
+]
