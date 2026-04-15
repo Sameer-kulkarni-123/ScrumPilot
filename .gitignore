@@ -37,3 +37,5 @@ backend/data/meetings/*.mp3
 
 # Checkpoints (generated data)
 backend/data/checkpoints/*.json
+
+old_requirements.txt
