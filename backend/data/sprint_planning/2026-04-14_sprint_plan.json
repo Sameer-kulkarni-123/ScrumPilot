@@ -1,0 +1,72 @@
+{
+  "sprint_goal": "Complete payment gateway integration (production-ready)",
+  "sprint_number": 24,
+  "sprint_duration_weeks": 2,
+  "start_date": "2026-04-14",
+  "end_date": "2026-04-25",
+  "team_capacity": {
+    "total_hours": 320,
+    "team_size": 5,
+    "velocity_last_sprint": 19,
+    "availability_notes": "Bob is on PTO for 3 days"
+  },
+  "commitment": {
+    "story_ids": [
+      "SP-439",
+      "SP-443",
+      "SP-447"
+    ],
+    "story_points": 21,
+    "estimated_hours": 210
+  },
+  "developer_assignments": [
+    {
+      "developer_name": "Sarah",
+      "story_ids": [
+        "SP-439"
+      ],
+      "task_ids": [
+        "SP-440",
+        "SP-441"
+      ],
+      "estimated_hours": 80
+    },
+    {
+      "developer_name": "Mike",
+      "story_ids": [
+        "SP-443"
+      ],
+      "task_ids": [
+        "SP-444",
+        "SP-445"
+      ],
+      "estimated_hours": 80
+    },
+    {
+      "developer_name": "Alice",
+      "story_ids": [
+        "SP-447"
+      ],
+      "task_ids": [
+        "SP-448",
+        "SP-449"
+      ],
+      "estimated_hours": 50
+    },
+    {
+      "developer_name": "Tom",
+      "story_ids": [],
+      "task_ids": [],
+      "estimated_hours": null
+    }
+  ],
+  "risks_identified": [
+    "Dependency on DevOps team to set up Stripe webhook endpoints",
+    "Stripe subscription API quirks around prorated refunds",
+    "Design team hasn't finalized payment form styles"
+  ],
+  "dependencies": [
+    "DevOps team setting up Stripe webhook endpoints"
+  ],
+  "notes": "Mid-sprint check-in on Wednesday to ensure Stripe webhook endpoints are set up"
+}

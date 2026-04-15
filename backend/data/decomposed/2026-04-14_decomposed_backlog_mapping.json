@@ -1,0 +1,30 @@
+{
+  "id_mapping": {
+    "epic_002": "SP-438",
+    "story_001": "SP-439",
+    "task_001": "SP-440",
+    "task_002": "SP-441",
+    "task_003": "SP-442",
+    "story_002": "SP-443",
+    "task_004": "SP-444",
+    "task_005": "SP-445",
+    "task_006": "SP-446",
+    "story_003": "SP-447",
+    "task_007": "SP-448",
+    "task_008": "SP-449",
+    "task_009": "SP-450",
+    "epic_001": "SP-451",
+    "story_004": "SP-452",
+    "task_010": "SP-453",
+    "task_011": "SP-454",
+    "task_012": "SP-455",
+    "epic_004": "SP-456",
+    "epic_003": "SP-457",
+    "story_005": "SP-458",
+    "task_013": "SP-459",
+    "task_014": "SP-460",
+    "task_015": "SP-461"
+  },
+  "last_updated": "2026-04-14T18:34:06.451871",
+  "resume_point": null
+}

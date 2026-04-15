@@ -1,0 +1,102 @@
+{
+  "calculation_date": "2026-04-11",
+  "epics_with_wsjf": [
+    {
+      "epic_id": "epic_002",
+      "title": "Payment Gateway Integration",
+      "description": "Integration with a payment gateway (Stripe) for credit card payments, subscription management, and payment event handling",
+      "wsjf_components": {
+        "business_value": 10,
+        "time_criticality": 9,
+        "risk_reduction": 4,
+        "effort": 3
+      },
+      "wsjf_score": 7.67,
+      "priority_rank": 1,
+      "mentioned_features": [
+        "credit card payments",
+        "subscription management",
+        "webhook handling for payment events",
+        "clean payment UI",
+        "receipt generation",
+        "email notifications for successful payments"
+      ],
+      "confidence": "high"
+    },
+    {
+      "epic_id": "epic_001",
+      "title": "User Authentication System",
+      "description": "A comprehensive system for user authentication, including login, signup, password reset, and OAuth integration",
+      "wsjf_components": {
+        "business_value": 9,
+        "time_criticality": 8,
+        "risk_reduction": 6,
+        "effort": 5
+      },
+      "wsjf_score": 4.6,
+      "priority_rank": 2,
+      "mentioned_features": [
+        "login page",
+        "user signup flow",
+        "password reset functionality",
+        "OAuth integration with Google and GitHub",
+        "email/password login",
+        "social login via OAuth",
+        "password recovery",
+        "email verification"
+      ],
+      "confidence": "high"
+    },
+    {
+      "epic_id": "epic_004",
+      "title": "Email Notification System",
+      "description": "A system for sending transactional emails to users for important events",
+      "wsjf_components": {
+        "business_value": 6,
+        "time_criticality": 6,
+        "risk_reduction": 2,
+        "effort": 4
+      },
+      "wsjf_score": 3.5,
+      "priority_rank": 3,
+      "mentioned_features": [
+        "transactional emails",
+        "email templates",
+        "integration with SendGrid or AWS SES",
+        "welcome emails",
+        "password reset links",
+        "payment receipts",
+        "account notifications"
+      ],
+      "confidence": "high"
+    },
+    {
+      "epic_id": "epic_003",
+      "title": "Admin Dashboard",
+      "description": "A dashboard for internal team to manage users, monitor the platform, and view analytics",
+      "wsjf_components": {
+        "business_value": 7,
+        "time_criticality": 5,
+        "risk_reduction": 3,
+        "effort": 7
+      },
+      "wsjf_score": 2.14,
+      "priority_rank": 4,
+      "mentioned_features": [
+        "user management capabilities",
+        "analytics dashboards",
+        "system health monitoring",
+        "configuration management",
+        "real-time analytics",
+        "active users metrics",
+        "revenue metrics",
+        "system performance metrics",
+        "error logs"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "sorted_by_wsjf": true,
+  "missing_epics": [],
+  "incomplete_epics": []
+}

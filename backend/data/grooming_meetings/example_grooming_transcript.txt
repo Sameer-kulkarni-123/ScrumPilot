@@ -1,0 +1,47 @@
+TechLead_Mike: Alright team, let's start the grooming session. We have four Epics from the PM meeting that we need to estimate. Let me pull up the list... we have User Authentication, Payment Gateway, Admin Dashboard, and Email Notifications.
+
+TechLead_Mike: Let's start with the auth system. This is pretty critical for us. I'd say time criticality is high - probably an 8 out of 10 because we need it for the Q2 launch and other features depend on it.
+
+Dev_Alex: Agreed on the urgency. For risk reduction, I think it's moderate to high. It addresses security concerns, so I'd say 6 out of 10 for risk reduction. We're reducing the risk of unauthorized access.
+
+Dev_Priya: What about effort? The auth system has login, signup, password reset, and OAuth. That's a decent amount of work. I'm thinking this is a 5 out of 10 for effort - medium complexity. Maybe 3 to 4 sprints?
+
+TechLead_Mike: Yeah, 5 sounds right for effort. Okay, moving on to the payment gateway integration.
+
+Dev_Alex: The payment thing is super urgent. Time criticality is definitely a 9 out of 10. We can't generate revenue without it, and stakeholders are pushing hard for this.
+
+TechLead_Mike: Agreed. For risk reduction, I'd say it's lower than auth - maybe a 4 out of 10. It's more about enabling revenue than reducing existing risks.
+
+Dev_Priya: Effort-wise, the payment gateway is actually not too bad. Stripe has good SDKs and documentation. I'd say 3 out of 10 for effort. We can probably knock this out in 2 sprints.
+
+Dev_Alex: Yeah, 3 sounds good. Much easier than I initially thought.
+
+TechLead_Mike: Great. Next up is the admin dashboard. This one is less urgent since it's internal. Time criticality is probably a 5 out of 10 - we need it eventually but it's not blocking customers.
+
+Dev_Priya: For risk reduction, I'd say it's pretty low - maybe 3 out of 10. It's more about operational efficiency than reducing risks.
+
+Dev_Alex: Effort is going to be significant though. We need user management, analytics, monitoring, configuration... that's a lot of features. I'm thinking 7 out of 10 for effort. This could take 4 to 5 sprints.
+
+TechLead_Mike: Yeah, the dashboard is definitely a bigger effort. Okay, last one - the email notification system.
+
+Dev_Priya: Email notifications are moderately urgent. I'd say time criticality is 6 out of 10. Users expect emails for important events, but it's not blocking core functionality.
+
+Dev_Alex: Risk reduction is pretty low here - maybe 2 out of 10. It's more about user experience than reducing risks.
+
+TechLead_Mike: For effort, email notifications are relatively straightforward. We just need to integrate with SendGrid or SES and create some templates. I'd say 4 out of 10 for effort. Probably 2 sprints.
+
+Dev_Priya: Agreed, 4 sounds right.
+
+TechLead_Mike: Perfect. Let me summarize what we have:
+- Authentication system: TC 8, RR 6, Effort 5
+- Payment gateway: TC 9, RR 4, Effort 3
+- Admin dashboard: TC 5, RR 3, Effort 7
+- Email notifications: TC 6, RR 2, Effort 4
+
+Does everyone agree with these estimates?
+
+Dev_Alex: Yep, looks good to me.
+
+Dev_Priya: Agreed. These estimates feel right.
+
+TechLead_Mike: Excellent. I'll document these and we can move forward with WSJF calculation. Thanks everyone!
