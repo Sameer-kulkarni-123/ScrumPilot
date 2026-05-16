@@ -72,9 +72,123 @@ async def handle_email_linking(update: Update, context: ContextTypes.DEFAULT_TYP
         db_user = session.query(User).filter(User.email == email).first()
         
         if not db_user:
+            from sqlalchemy import text as _text
+            from datetime import datetime, timezone
+
+            display_name = (
+                f"{user.first_name or ''} {user.last_name or ''}".strip()
+                or user.username
+                or email.split("@")[0]
+            )
+
+            # ── First-ever user: auto-approve as admin (bootstrapping) ────────
+            any_existing = session.query(User).first()
+            if not any_existing:
+                row = session.execute(
+                    _text("SELECT role_id FROM roles WHERE role_name = 'admin'")
+                ).fetchone()
+                db_user = User(
+                    display_name=display_name,
+                    normalized_name=display_name.lower(),
+                    email=email,
+                    role_id=row[0] if row else None,
+                    account_status="active",
+                    email_verified=True,
+                    telegram_user_id=user.id,
+                    telegram_chat_id=chat_id,
+                    telegram_username=user.username,
+                    telegram_first_name=user.first_name,
+                    telegram_last_name=user.last_name,
+                    telegram_language_code=user.language_code,
+                    telegram_linked_at=datetime.now(timezone.utc),
+                    telegram_notifications_enabled=True,
+                )
+                session.add(db_user)
+                session.commit()
+                logger.info(f"First user {email} registered as admin")
+                await update.message.reply_text(
+                    f"✅ *Welcome, {display_name}!*\n\n"
+                    f"You are the first user — registered as *admin*.\n\n"
+                    f"You can now approve other users with `/list_users` and manage the system.\n"
+                    f"Use /help to see all commands.",
+                    parse_mode="Markdown",
+                )
+                context.user_data['awaiting_email'] = False
+                return
+
+            # ── Subsequent users: send approval request to admin ──────────────
+            from backend.db.models import ApprovalRequest
+
+            # Store pending registration in ApprovalRequest table
+            admin_user = session.query(User).filter(
+                User.telegram_user_id.isnot(None),
+            ).join(User.role).filter(
+                User.role.has(role_name="admin") | User.role.has(role_name="product_owner")
+            ).first()
+
+            if not admin_user:
+                # Fallback: send to any linked user
+                admin_user = session.query(User).filter(
+                    User.telegram_user_id.isnot(None)
+                ).first()
+
+            pending = ApprovalRequest(
+                request_type="user_registration",
+                entity_type="user",
+                entity_id=0,
+                status="pending",
+                request_data={
+                    "email":            email,
+                    "display_name":     display_name,
+                    "telegram_user_id": user.id,
+                    "telegram_chat_id": chat_id,
+                    "telegram_username": user.username,
+                },
+                assigned_to=admin_user.id if admin_user else None,
+                requested_by=admin_user.id if admin_user else None,
+            )
+            session.add(pending)
+            session.commit()
+            approval_id = pending.approval_id
+            logger.info(
+                f"User registration request #{approval_id} for {email} "
+                f"sent to admin {admin_user.email if admin_user else 'none'}"
+            )
+
+            # Notify admin via Telegram
+            if admin_user and admin_user.telegram_user_id:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Bot
+                from backend.telegram.config import TelegramConfig
+                kb = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("📋 Accept as PM",  callback_data=f"uacc_{approval_id}_pm"),
+                        InlineKeyboardButton("💻 Accept as Dev", callback_data=f"uacc_{approval_id}_dev"),
+                    ],
+                    [
+                        InlineKeyboardButton("❌ Reject",        callback_data=f"urej_{approval_id}"),
+                    ],
+                ])
+                try:
+                    bot = Bot(token=TelegramConfig.BOT_TOKEN)
+                    await bot.send_message(
+                        chat_id=admin_user.telegram_chat_id,
+                        text=(
+                            f"👤 *New User Registration Request*\n\n"
+                            f"Name:  {display_name}\n"
+                            f"Email: `{email}`\n\n"
+                            f"Select a role to approve or reject:"
+                        ),
+                        reply_markup=kb,
+                        parse_mode="Markdown",
+                    )
+                except Exception as _ne:
+                    logger.warning(f"Could not notify admin of registration: {_ne}")
+
             await update.message.reply_text(
-                f"❌ No user found with email: {email}\n\n"
-                f"Please contact your administrator to create an account first."
+                f"⏳ *Registration request sent!*\n\n"
+                f"Your request for `{email}` is pending admin approval.\n"
+                f"You will be notified here once approved.",
+                parse_mode="Markdown",
             )
             context.user_data['awaiting_email'] = False
             return

@@ -1,41 +1,78 @@
-# Virtual Environment
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
 .venv/
 venv/
+env/
+ENV/
 
-# IDE
+# Build / packaging artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# IDE and editor settings
 .vscode/
 .idea/
+.claude/
+*.swp
 
-# Environment Variables (CRITICAL - Contains API keys!)
+# Environment variables (contains secrets)
 .env
+.env.*
+!.env.example
 
-# Temporary directories
+# Temporary directories and browser sessions
 temp/
 google_session/
 chrome_bot_profile/
 
-# Python
-__pycache__/
-*.pyc
-
-# Database
+# Databases and local storage
 *.db
+*.sqlite
 *.sqlite3
+*.pkl
 
 # Logs
 *.log
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 
-# Audio files (can be large)
+# Generated media
 *.wav
 *.mp3
-backend/data/meetings/*.wav
-backend/data/meetings/*.mp3
 
-# Checkpoints (generated data)
-backend/data/checkpoints/*.json
+# Generated backend pipeline outputs
+backend/data/checkpoints/
+backend/data/meetings/
+backend/data/pipeline_reports/
+backend/speech/temp/
+backend/data/decomposed/20*_decomposed_backlog.json
+backend/data/decomposed/20*_decomposition_report.md
+backend/data/grooming_meetings/20*_grooming_data.json
+backend/data/grooming_meetings/20*_grooming_report.md
+backend/data/jira/20*_jira_creation.json
+backend/data/jira/20*_jira_report.md
+backend/data/pm_meetings/20*_extracted_epics.json
+backend/data/pm_meetings/20*_pm_report.md
+backend/data/scrum_meetings/20*_actions.json
+backend/data/sprint_planning/20*_sprint_plan.json
+backend/data/sprint_planning/20*_sprint_report.md
+backend/data/sprint_planning/20*_jira_creation.json
+backend/data/wsjf/20*_wsjf_scores.json
+backend/data/wsjf/20*_wsjf_report.md
 
+# Legacy file
 old_requirements.txt

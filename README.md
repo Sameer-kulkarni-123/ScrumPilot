@@ -79,11 +79,18 @@ JIRA_URL=https://your-domain.atlassian.net
 JIRA_EMAIL=your-email@example.com
 JIRA_API_TOKEN=your_jira_api_token
 JIRA_PROJECT_KEY=SP
+# Optional: Multi-project + team routing
+JIRA_ROUTING_CONFIG_PATH=backend/config/jira_routing.json
 
 # Telegram Bot (@BotFather)
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_telegram_chat_id
 ```
+
+If `JIRA_ROUTING_CONFIG_PATH` is set, backlog items are routed by keyword mapping to:
+1. a Jira project key and
+2. a team component (e.g., Backend, Frontend),
+with unmatched items sent to TRIAGE.
 
 ### 6. Run Database Migrations
 
@@ -91,7 +98,25 @@ TELEGRAM_CHAT_ID=your_telegram_chat_id
 alembic upgrade head
 ```
 
-### 7. Start the Backend
+### 7. Create Product Owner User
+
+The backlog pipeline requires a user with the `product_owner` role for approvals. Create one using:
+
+```bash
+python create_product_owner.py
+```
+
+You'll be prompted for:
+- Display name (e.g., "John Doe")
+- Email address
+- Optional: Telegram user ID and chat ID (for approval notifications)
+
+**Note:** You can link Telegram later by:
+1. Starting your Telegram bot
+2. Sending `/start` command
+3. Sending `/link your-email@example.com`
+
+### 8. Start the Backend
 
 ```bash
 python -m backend.telegram.bot
@@ -425,6 +450,20 @@ JIRAError: 401 Unauthorized
 - Check TELEGRAM_BOT_TOKEN is correct
 - Ensure backend is running: `python -m backend.telegram.bot`
 - Verify bot is not blocked
+
+### No Product Owner User Found
+
+```
+Pipeline failed: No PM user found for approval. Please ensure a user with 'product_owner' role exists and has Telegram linked.
+```
+
+**Solution:**
+```bash
+# Create a product owner user
+python create_product_owner.py
+```
+
+Follow the prompts to create a user with the `product_owner` role. You can optionally link Telegram for approval notifications, or do it later via the bot's `/link` command.
 
 ## Database Schema
 

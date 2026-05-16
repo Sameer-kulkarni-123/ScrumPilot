@@ -433,6 +433,11 @@ class Epic(Base):
         TIMESTAMP(timezone=True),
         nullable=True,
     )
+    jira_project_key: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    team_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    jira_component: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    routing_confidence: Mapped[Optional[float]] = mapped_column(Numeric(4, 3), nullable=True)
+    routing_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -506,6 +511,11 @@ class Story(Base):
         TIMESTAMP(timezone=True),
         nullable=True,
     )
+    jira_project_key: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    team_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    jira_component: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    routing_confidence: Mapped[Optional[float]] = mapped_column(Numeric(4, 3), nullable=True)
+    routing_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -580,6 +590,11 @@ class BacklogTask(Base):
         TIMESTAMP(timezone=True),
         nullable=True,
     )
+    jira_project_key: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    team_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    jira_component: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    routing_confidence: Mapped[Optional[float]] = mapped_column(Numeric(4, 3), nullable=True)
+    routing_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -651,6 +666,11 @@ class ScrumAction(Base):
         default=ExecutionStatus.PENDING,
     )
     jira_response: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    jira_project_key: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    team_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    jira_component: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    routing_confidence: Mapped[Optional[float]] = mapped_column(Numeric(4, 3), nullable=True)
+    routing_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -1653,3 +1673,85 @@ class TelegramWebhookEvent(Base):
 
     def __repr__(self):
         return f"<TelegramWebhookEvent(id={self.event_id}, type={self.event_type}, processed={self.processed})>"
+
+
+# ── Jira Routing Registry (Phase 3) ────────────────────────────────────────────────
+
+
+class JiraProjectRegistry(Base):
+    """
+    Runtime registry of Jira projects known to ScrumPilot.
+
+    Seeded from jira_routing.json on migration; updated when new projects
+    are created via the PM approval flow.
+    """
+    __tablename__ = "jira_projects_registry"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    project_key: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    keywords: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="active"
+    )
+    board_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    owning_domain: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    auto_created: Mapped[bool] = mapped_column(nullable=False, default=False)
+    registry_metadata: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    # Relationships
+    routing_teams: Mapped[List["JiraProjectTeam"]] = relationship(
+        "JiraProjectTeam",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("project_key", name="uq_jira_projects_registry_key"),
+        Index("idx_jira_projects_status", "status"),
+    )
+
+    def __repr__(self):
+        return f"<JiraProjectRegistry(key={self.project_key}, status={self.status})>"
+
+
+class JiraProjectTeam(Base):
+    """
+    Team taxonomy per Jira project for routing.
+
+    Project-specific team definitions (component, keywords, lead).
+    Falls back to global teams in jira_routing.json when project has no teams.
+    """
+    __tablename__ = "jira_project_teams"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    project_key: Mapped[str] = mapped_column(
+        String(20),
+        ForeignKey("jira_projects_registry.project_key", ondelete="CASCADE"),
+        nullable=False,
+    )
+    team_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    jira_component: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    label_set: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    keywords: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    lead_jira_account_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    project: Mapped["JiraProjectRegistry"] = relationship(
+        "JiraProjectRegistry", back_populates="routing_teams"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("project_key", "team_name", name="uq_jira_project_teams"),
+        Index("idx_jira_project_teams_key", "project_key"),
+    )
+
+    def __repr__(self):
+        return f"<JiraProjectTeam(project={self.project_key}, team={self.team_name})>"

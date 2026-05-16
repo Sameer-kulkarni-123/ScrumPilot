@@ -33,6 +33,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     callback_data = query.data
     
+    # ── User registration accept/reject ──────────────────────────────────────
+    if callback_data.startswith('uacc_') or callback_data.startswith('urej_'):
+        await handle_user_registration_callback(update, context, callback_data)
+        return
+
     # Handle special edit_epic callback
     if callback_data.startswith('edit_epic_'):
         parts = callback_data.split('_')
@@ -103,6 +108,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await handle_reject(query, session, approval, db_user, context)
         elif action == 'edit':
             await handle_edit(query, session, approval, db_user, context)
+        elif action == 'editkey':
+            await handle_editkey(query, session, approval, db_user, context)
         elif action == 'view':
             await handle_view(query, session, approval)
         elif action == 'back':
@@ -355,6 +362,33 @@ async def handle_edit_epic_item(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 
+async def handle_editkey(query, session, approval: ApprovalRequest, user, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handle 'Edit Key' action for project_creation approvals.
+
+    Stores pending state in context.user_data so the next message from this user
+    is treated as the new Jira project key.
+    """
+    if approval.request_type != 'project_creation':
+        await query.edit_message_text("✏️ Key editing is only available for project creation approvals.")
+        return
+
+    request_data = approval.request_data or {}
+    current_key = request_data.get('suggested_key', '???')
+
+    context.user_data['pending_editkey_approval_id'] = approval.approval_id
+
+    await query.edit_message_text(
+        f"✏️ *Edit Project Key*\n\n"
+        f"Current suggested key: `{current_key}`\n\n"
+        f"Please reply with the new Jira project key.\n"
+        f"Rules: 2–10 uppercase letters/digits, must start with a letter.\n"
+        f"Example: `MKTG`, `PLATFORM`, `APP2`\n\n"
+        f"_(Send /cancel to abort)_",
+        parse_mode='Markdown',
+    )
+
+
 async def show_story_edit_options(query, approval: ApprovalRequest, context: ContextTypes.DEFAULT_TYPE):
     """Show edit options for story creation."""
     await query.edit_message_text(
@@ -506,9 +540,169 @@ async def execute_approval(approval: ApprovalRequest):
         return await execute_sprint_planning(approval)
     elif approval.request_type == 'standup_update':
         return await execute_standup_update(approval)
+    elif approval.request_type == 'project_creation':
+        return await execute_project_creation(approval)
+    elif approval.request_type == 'routing_classification':
+        return await execute_routing_classification(approval)
     else:
         logger.warning(f"Unknown approval type: {approval.request_type}")
         return []
+
+
+async def execute_routing_classification(approval: ApprovalRequest) -> list:
+    """
+    Phase 5 — PM confirmed the routing card.
+
+    The routing card is informational: it shows which epics route to which
+    projects (with confidence scores) before Jira creation begins.  Approving
+    it means the PM is happy with the routing as-is; the actual Jira creation
+    was (or will be) handled separately by the pipeline.
+
+    Returns a summary of confirmed routing entries.
+    """
+    data = approval.request_data or {}
+    decisions = data.get("decisions", [])
+    confirmed = []
+    for d in decisions:
+        key = d.get("project_key") or d.get("project", "?")
+        conf = d.get("confidence", 0.0)
+        summary = d.get("summary", "")
+        confirmed.append(f"{key}:{summary[:30]} ({conf:.0%})")
+        logger.info(f"Routing confirmed by PM: '{summary}' → {key} (conf={conf:.2f})")
+
+    logger.info(
+        f"PM confirmed routing for approval #{approval.approval_id} — "
+        f"{len(decisions)} item(s)"
+    )
+    return confirmed or ["ROUTING:confirmed"]
+
+
+async def execute_project_creation(approval: ApprovalRequest) -> list:
+    """
+    Phase 4 — PM approved a new Jira project.
+
+    1. Calls Jira REST API to create the project.
+    2. Registers the project in the local DB registry (jira_projects_registry).
+    3. Returns ["PROJECT:<key>"] so the caller can display it.
+    """
+    import os
+    import re
+    import requests as _req
+    from backend.db.connection import get_session
+    from backend.services.routing_service import register_project
+
+    data = approval.approved_data or approval.request_data or {}
+    project_key = data.get('suggested_key', '').strip().upper()
+    project_name = data.get('suggested_name', project_key)
+    routing = data.get('routing_decision', {})
+    keywords = []
+
+    if not project_key:
+        raise Exception("No project key found in approval data")
+
+    # Validate key format
+    if not re.match(r'^[A-Z][A-Z0-9]{1,9}$', project_key):
+        raise Exception(
+            f"Invalid project key '{project_key}'. "
+            "Must be 2–10 uppercase letters/digits starting with a letter."
+        )
+
+    jira_url = os.environ['JIRA_URL'].rstrip('/')
+    auth = (os.environ['JIRA_EMAIL'], os.environ['JIRA_API_TOKEN'])
+    headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
+
+    # Resolve account ID for project lead
+    me = _req.get(f'{jira_url}/rest/api/3/myself', auth=auth, headers=headers, timeout=15)
+    me.raise_for_status()
+    account_id = me.json()['accountId']
+
+    # Check if project already exists in Jira (idempotent)
+    existing = _req.get(
+        f'{jira_url}/rest/api/3/project/{project_key}',
+        auth=auth, headers=headers, timeout=15
+    )
+    if existing.status_code == 200:
+        logger.info(f"Jira project '{project_key}' already exists — skipping creation")
+        created_key = existing.json().get('key', project_key)
+    else:
+        payload = {
+            'key': project_key,
+            'name': project_name,
+            'projectTypeKey': 'software',
+            'leadAccountId': account_id,
+        }
+        resp = _req.post(
+            f'{jira_url}/rest/api/3/project',
+            json=payload, auth=auth, headers=headers, timeout=30
+        )
+        if resp.status_code not in (200, 201):
+            raise Exception(
+                f"Jira project creation failed (HTTP {resp.status_code}): {resp.text[:300]}"
+            )
+        created_key = resp.json().get('key', project_key)
+        logger.info(f"Jira project '{created_key}' created successfully")
+
+    # Register in local DB registry so future preflight checks pass
+    with get_session() as session:
+        register_project(
+            project_key=created_key,
+            name=project_name,
+            keywords=keywords,
+            session=session,
+            auto_created=True,
+        )
+
+    logger.info(f"Project '{created_key}' registered in local registry")
+    return [f"PROJECT:{created_key}"]
+
+
+async def handle_editkey_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handle the PM's text reply after clicking 'Edit Key' on a project_creation card.
+
+    Validates the new key, updates the approval record, then clears state.
+    """
+    import re
+    approval_id = context.user_data.get('pending_editkey_approval_id')
+    if not approval_id:
+        return
+
+    new_key = update.message.text.strip().upper()
+
+    if not re.match(r'^[A-Z][A-Z0-9]{1,9}$', new_key):
+        await update.message.reply_text(
+            "❌ *Invalid key format.*\n"
+            "Must be 2–10 uppercase letters/digits starting with a letter.\n"
+            "Examples: `BACKEND`, `MKTG`, `API2`\n\n"
+            "Please try again:",
+            parse_mode='Markdown',
+        )
+        return
+
+    with get_session() as session:
+        approval = session.query(ApprovalRequest).filter(
+            ApprovalRequest.approval_id == approval_id
+        ).first()
+
+        if not approval:
+            await update.message.reply_text("❌ Approval not found")
+            context.user_data['pending_editkey_approval_id'] = None
+            return
+
+        data = dict(approval.request_data or {})
+        old_key = data.get('suggested_key', '???')
+        data['suggested_key'] = new_key
+        approval.request_data = data
+        approval.approved_data = data
+        session.commit()
+
+    context.user_data['pending_editkey_approval_id'] = None
+
+    await update.message.reply_text(
+        f"✅ *Project key updated:* `{old_key}` → `{new_key}`\n\n"
+        f"Now tap *✅ Approve* on the original card to create the project in Jira.",
+        parse_mode='Markdown',
+    )
 
 
 async def execute_epic_creation(approval: ApprovalRequest):
@@ -1107,8 +1301,8 @@ async def execute_standup_update(approval: ApprovalRequest):
                     action_type = action.get('action')
                     summary = action.get('summary', '')
                     
-                    # Extract ticket key from summary (e.g., "SP-189")
-                    match = re.search(r'(SP-\d+)', summary)
+                    # Extract ticket key from summary (e.g., "SP-189", "MOBILE-42")
+                    match = re.search(r'([A-Z][A-Z0-9]+-\d+)', summary)
                     if not match:
                         logger.warning(f"No ticket key found in action: {summary}")
                         continue
@@ -1190,3 +1384,136 @@ async def execute_standup_update(approval: ApprovalRequest):
     except Exception as e:
         logger.error(f"Failed to update Jira tickets: {e}", exc_info=True)
         raise Exception(f"Failed to update Jira tickets: {str(e)}")
+
+
+# ── User Registration Approval ────────────────────────────────────────────────
+
+async def handle_user_registration_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    callback_data: str,
+) -> None:
+    """
+    Handle uacc_<id>_<role>  and  urej_<id>  callbacks for user registration.
+
+    uacc_42_pm  → accept registration #42, assign product_owner role
+    uacc_42_dev → accept registration #42, assign developer role
+    urej_42     → reject registration #42
+    """
+    from telegram import Bot
+    from backend.telegram.config import TelegramConfig
+    from sqlalchemy import text as _text
+
+    query = update.callback_query
+    parts = callback_data.split('_')
+
+    try:
+        is_accept = callback_data.startswith('uacc_')
+        approval_id = int(parts[1])
+        role_short  = parts[2] if is_accept and len(parts) > 2 else None
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Invalid registration callback.")
+        return
+
+    role_map = {"pm": "product_owner", "dev": "developer", "admin": "admin"}
+    role_name = role_map.get(role_short, "developer") if is_accept else None
+
+    with get_session() as session:
+        approval = session.query(ApprovalRequest).filter(
+            ApprovalRequest.approval_id == approval_id,
+            ApprovalRequest.request_type == "user_registration",
+        ).first()
+
+        if not approval:
+            await query.edit_message_text("❌ Registration request not found.")
+            return
+
+        if approval.status != "pending":
+            await query.edit_message_text(
+                f"ℹ️ This request was already {approval.status}."
+            )
+            return
+
+        data = approval.request_data or {}
+        email        = data.get("email", "")
+        display_name = data.get("display_name", email.split("@")[0])
+        tg_user_id   = data.get("telegram_user_id")
+        tg_chat_id   = data.get("telegram_chat_id")
+
+        if not is_accept:
+            approval.status = "rejected"
+            approval.reviewed_at = datetime.now(timezone.utc)
+            session.commit()
+            await query.edit_message_text(
+                f"❌ Registration for `{email}` rejected.", parse_mode="Markdown"
+            )
+            if tg_chat_id:
+                try:
+                    bot = Bot(token=TelegramConfig.BOT_TOKEN)
+                    await bot.send_message(
+                        chat_id=tg_chat_id,
+                        text=(
+                            f"❌ Your registration request for `{email}` was declined.\n\n"
+                            f"Contact your administrator for assistance."
+                        ),
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    pass
+            return
+
+        # ── Accept: create user in DB ─────────────────────────────────────────
+        existing = session.query(User).filter(User.email == email).first()
+        if existing:
+            await query.edit_message_text(
+                f"ℹ️ User `{email}` already exists.", parse_mode="Markdown"
+            )
+            return
+
+        row = session.execute(
+            _text("SELECT role_id FROM roles WHERE role_name = :r"), {"r": role_name}
+        ).fetchone()
+
+        new_user = User(
+            display_name=display_name,
+            normalized_name=display_name.lower(),
+            email=email,
+            role_id=row[0] if row else None,
+            account_status="active",
+            email_verified=True,
+            telegram_user_id=tg_user_id,
+            telegram_chat_id=tg_chat_id,
+            telegram_username=data.get("telegram_username"),
+            telegram_linked_at=datetime.now(timezone.utc),
+            telegram_notifications_enabled=True,
+        )
+        session.add(new_user)
+        approval.status = "approved"
+        approval.reviewed_at = datetime.now(timezone.utc)
+        session.commit()
+
+        logger.info(f"Admin approved registration for {email} as {role_name}")
+
+        role_emoji = {"product_owner": "📋", "developer": "💻", "admin": "🔑"}.get(role_name, "👤")
+        await query.edit_message_text(
+            f"{role_emoji} *{display_name}* (`{email}`) approved as *{role_name}*.",
+            parse_mode="Markdown",
+        )
+
+        # Notify the user
+        if tg_chat_id:
+            try:
+                bot = Bot(token=TelegramConfig.BOT_TOKEN)
+                await bot.send_message(
+                    chat_id=tg_chat_id,
+                    text=(
+                        f"✅ *Welcome to ScrumPilot, {display_name}!*\n\n"
+                        f"Your registration was approved.\n"
+                        f"Role: *{role_name}*\n\n"
+                        f"You will now receive notifications for approvals and updates.\n"
+                        f"Use /help to see available commands."
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception as _ne:
+                logger.warning(f"Could not notify new user {email}: {_ne}")

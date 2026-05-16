@@ -32,6 +32,7 @@ from backend.telegram.handlers import (
     callback_handler,
     message_handler,
 )
+from backend.telegram.handlers import admin_handler
 
 # Configure logging
 logging.basicConfig(
@@ -63,7 +64,19 @@ class ScrumPilotBot:
         self.application.add_handler(CommandHandler("sprint", sprint_handler.handle_sprint))
         self.application.add_handler(CommandHandler("status", sprint_handler.handle_status))
         self.application.add_handler(CommandHandler("team", sprint_handler.handle_team))
-        
+        self.application.add_handler(CommandHandler("routing_status", sprint_handler.handle_routing_status))
+
+        # Admin / routing-registry commands (Phase 7)
+        self.application.add_handler(CommandHandler("add_project",      admin_handler.handle_add_project))
+        self.application.add_handler(CommandHandler("remove_project",   admin_handler.handle_remove_project))
+        self.application.add_handler(CommandHandler("add_team_keyword", admin_handler.handle_add_team_keyword))
+        self.application.add_handler(CommandHandler("list_projects",    admin_handler.handle_list_projects))
+
+        # User management commands
+        self.application.add_handler(CommandHandler("add_user",   admin_handler.handle_add_user))
+        self.application.add_handler(CommandHandler("list_users", admin_handler.handle_list_users))
+        self.application.add_handler(CommandHandler("set_role",   admin_handler.handle_set_role))
+
         # Register callback query handler (for inline buttons)
         self.application.add_handler(CallbackQueryHandler(callback_handler.handle_callback))
         

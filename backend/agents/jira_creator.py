@@ -21,6 +21,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 from backend.tools.jira_client import JiraManager
+from backend.tools.jira_routing import load_jira_routing_config, JiraRoutingResolver, RoutingDecision
 
 # Configure logging
 logging.basicConfig(
@@ -83,6 +84,10 @@ class JiraCreationResult(BaseModel):
     # Idempotency: Track mapping of internal IDs to Jira keys
     id_mapping: Dict[str, str] = Field(default_factory=dict)
     # Example: {"epic_001": "SP-97", "story_001_01": "SP-98", "task_001_01_01": "SP-99"}
+
+    # Routing decisions keyed by epic_id for downstream DB persistence
+    routing_decisions: Dict[str, Dict] = Field(default_factory=dict)
+    # Example: {"epic_001": {"project_key": "MOBILE", "team_name": "backend", ...}}
     
     last_updated: str = Field(default="")
     resume_point: Optional[str] = None
@@ -117,6 +122,56 @@ class JiraCreatorAgent:
         except Exception as e:
             logger.error(f"Failed to initialize Jira client: {e}")
             raise
+
+        # ── Load optional keyword-hint config (jira_routing.json) ────────────
+        self.routing_resolver: Optional[JiraRoutingResolver] = None
+        _hint_projects: list = []
+        try:
+            routing_config = load_jira_routing_config()
+            if routing_config:
+                self.routing_resolver = JiraRoutingResolver(routing_config)
+                _hint_projects = [
+                    {"key": p.key, "name": p.name}
+                    for p in routing_config.projects
+                ]
+                logger.info(
+                    f"jira_routing.json loaded — {len(_hint_projects)} project hint(s)"
+                )
+        except Exception as e:
+            logger.warning(f"jira_routing.json not loaded (optional): {e}")
+
+        # ── Fetch live Jira projects + auto-seed DB registry ─────────────────
+        # None  = Jira API call failed  → optimistic (skip guard)
+        # set() = Jira has no projects  → all routing is new-project
+        self._live_jira_keys: Optional[set] = None
+        self._live_jira_projects: list = []   # [{"key": ..., "name": ...}]
+        try:
+            raw = self.jira.client.projects()
+            self._live_jira_projects = [{"key": p.key, "name": p.name} for p in raw]
+            self._live_jira_keys     = {p["key"] for p in self._live_jira_projects}
+            logger.info(
+                f"Live Jira projects: {self._live_jira_keys or '(none)'}"
+            )
+            # Auto-seed DB registry so existing Jira projects are always known
+            self._seed_registry_from_jira(self._live_jira_projects)
+        except Exception as _e:
+            logger.warning(f"Could not fetch live Jira project list: {_e}")
+
+        # ── Build LLM-based project router (domain-agnostic) ─────────────────
+        self._llm_router = None
+        try:
+            from backend.tools.llm_project_router import LLMProjectRouter
+            self._llm_router = LLMProjectRouter(
+                live_projects=self._live_jira_projects,
+                hint_projects=_hint_projects,
+            )
+            logger.info(
+                f"LLM project router ready — "
+                f"{len(self._live_jira_projects)} live project(s), "
+                f"{len(_hint_projects)} hint(s)"
+            )
+        except Exception as _e:
+            logger.warning(f"LLM project router not available: {_e}")
 
         self.decomposed_backlog: Optional[Dict] = None
         self.creation_result: Optional[JiraCreationResult] = None
@@ -214,7 +269,66 @@ class JiraCreatorAgent:
         except Exception as e:
             logger.warning(f"Failed to save mapping: {e}")
 
-    def create_epic_in_jira(self, epic: Dict) -> JiraEpic:
+    def _seed_registry_from_jira(self, live_projects: list) -> None:
+        """
+        Register any Jira project not yet in the local DB registry.
+        Runs once at startup so the registry always reflects reality.
+        """
+        if not live_projects:
+            return
+        try:
+            from backend.db.connection import get_session
+            from backend.db.models import JiraProjectRegistry
+            with get_session() as session:
+                for proj in live_projects:
+                    key  = proj["key"]
+                    name = proj["name"]
+                    existing = session.query(JiraProjectRegistry).filter(
+                        JiraProjectRegistry.project_key == key
+                    ).first()
+                    if not existing:
+                        session.add(JiraProjectRegistry(
+                            project_key=key,
+                            name=name,
+                            keywords=[],
+                            status="active",
+                            auto_created=False,
+                            registry_metadata={},
+                        ))
+                        logger.info(f"Auto-registered Jira project '{key}' in DB registry")
+                    elif existing.status != "active":
+                        existing.status = "active"
+                session.commit()
+        except Exception as _e:
+            logger.warning(f"Could not seed DB registry from Jira: {_e}")
+
+    def resolve_routing(self, summary: str, description: str = "") -> RoutingDecision:
+        """
+        Resolve project routing using LLM (domain-agnostic).
+        Falls back to keyword matching (jira_routing.json) if LLM unavailable.
+        """
+        # 1. LLM router — primary, domain-agnostic
+        if self._llm_router is not None:
+            try:
+                return self._llm_router.route(summary, description)
+            except Exception as _e:
+                logger.warning(f"LLM routing failed for '{summary}': {_e}; falling back")
+
+        # 2. Keyword resolver — fallback (requires jira_routing.json)
+        if self.routing_resolver:
+            return self.routing_resolver.resolve(summary, description)
+
+        # 3. Last resort
+        return RoutingDecision(
+            project_key=self.jira.project_key or "",
+            project_name=self.jira.project_key or "",
+            component=None,
+            matched_project=False,
+            matched_team=False,
+            is_triage=False,
+        )
+
+    def create_epic_in_jira(self, epic: Dict, project_key: Optional[str] = None, component: Optional[str] = None) -> JiraEpic:
         """
         Create an Epic in Jira with WSJF data.
         
@@ -331,7 +445,9 @@ class JiraCreatorAgent:
             result = self.jira.create_epic(
                 summary=epic_title,
                 description=epic_description,
-                epic_name=epic_title[:50]  # Short name for Epic
+                epic_name=epic_title[:50],  # Short name for Epic
+                project_key=project_key,
+                component=component,
             )
 
             if result.get('success'):
@@ -381,7 +497,7 @@ class JiraCreatorAgent:
                 error=str(e)
             )
 
-    def create_story_in_jira(self, story: Dict, epic_key: str) -> JiraStory:
+    def create_story_in_jira(self, story: Dict, epic_key: str, project_key: Optional[str] = None, component: Optional[str] = None) -> JiraStory:
         """
         Create a Story in Jira linked to an Epic.
         
@@ -398,12 +514,13 @@ class JiraCreatorAgent:
         """
         story_id = story.get('story_id', 'unknown')
         story_title = story.get('title', 'Untitled Story')
+        mapping_key = f"{epic_key}:{story_id}"
         
         # ═══════════════════════════════════════════════════════════════════
         # IDEMPOTENCY CHECK: Skip if already created (with Jira verification)
         # ═══════════════════════════════════════════════════════════════════
-        if story_id in self.creation_result.id_mapping:
-            existing_key = self.creation_result.id_mapping[story_id]
+        if mapping_key in self.creation_result.id_mapping:
+            existing_key = self.creation_result.id_mapping[mapping_key]
             
             # IMPORTANT: Verify ticket actually exists in Jira
             from backend.db.crud import verify_jira_ticket_exists
@@ -426,7 +543,7 @@ class JiraCreatorAgent:
                 )
                 print(f"      Story {existing_key} not found in Jira, recreating...")
                 # Remove from mapping and continue with creation
-                del self.creation_result.id_mapping[story_id]
+                del self.creation_result.id_mapping[mapping_key]
         
         logger.debug(f"Creating Story in Jira: {story_title} ({story_id})")
         print(f"    Creating Story: {story_title[:60]}...")
@@ -460,7 +577,9 @@ class JiraCreatorAgent:
                 summary=story_title,
                 description=story_description,
                 issue_type="Story",
-                epic_link=epic_key
+                epic_link=epic_key,
+                project_key=project_key,
+                component=component,
             )
 
             if result.get('success'):
@@ -469,7 +588,7 @@ class JiraCreatorAgent:
                 # ═══════════════════════════════════════════════════════════
                 # SAVE MAPPING IMMEDIATELY for idempotency
                 # ═══════════════════════════════════════════════════════════
-                self.creation_result.id_mapping[story_id] = jira_key
+                self.creation_result.id_mapping[mapping_key] = jira_key
                 self.save_mapping()
                 
                 logger.debug(f"Story created successfully: {jira_key}")
@@ -507,7 +626,7 @@ class JiraCreatorAgent:
                 error=str(e)
             )
 
-    def create_task_in_jira(self, task: Dict, story_key: str) -> JiraTask:
+    def create_task_in_jira(self, task: Dict, story_key: str, project_key: Optional[str] = None, component: Optional[str] = None) -> JiraTask:
         """
         Create a Sub-task in Jira linked to a Story.
         
@@ -524,12 +643,13 @@ class JiraCreatorAgent:
         """
         task_id = task.get('task_id', 'unknown')
         task_title = task.get('title', 'Untitled Task')
+        mapping_key = f"{story_key}:{task_id}"
         
         # ═══════════════════════════════════════════════════════════════════
         # IDEMPOTENCY CHECK: Skip if already created (with Jira verification)
         # ═══════════════════════════════════════════════════════════════════
-        if task_id in self.creation_result.id_mapping:
-            existing_key = self.creation_result.id_mapping[task_id]
+        if mapping_key in self.creation_result.id_mapping:
+            existing_key = self.creation_result.id_mapping[mapping_key]
             
             # IMPORTANT: Verify ticket actually exists in Jira
             from backend.db.crud import verify_jira_ticket_exists
@@ -553,7 +673,7 @@ class JiraCreatorAgent:
                 )
                 print(f"          Task {existing_key} not found in Jira, recreating...")
                 # Remove from mapping and continue with creation
-                del self.creation_result.id_mapping[task_id]
+                del self.creation_result.id_mapping[mapping_key]
         
         logger.debug(f"Creating Sub-task in Jira: {task_title} ({task_id})")
         print(f"        Creating Sub-task: {task_title[:50]}...")
@@ -587,6 +707,8 @@ class JiraCreatorAgent:
                 description=task_description,
                 issue_type="Subtask",  # Subtasks are children of Stories (hierarchy level -1)
                 parent_key=story_key,
+                project_key=project_key,
+                component=component,
             )
 
             if result.get('success'):
@@ -595,7 +717,7 @@ class JiraCreatorAgent:
                 # ═══════════════════════════════════════════════════════════
                 # SAVE MAPPING IMMEDIATELY for idempotency
                 # ═══════════════════════════════════════════════════════════
-                self.creation_result.id_mapping[task_id] = jira_key
+                self.creation_result.id_mapping[mapping_key] = jira_key
                 self.save_mapping()
                 
                 logger.debug(f"Task created successfully: {jira_key}")
@@ -698,26 +820,95 @@ class JiraCreatorAgent:
 
         # Create each Epic with its Stories and Tasks
         for epic_data in epics_data:
+            epic_id = epic_data.get('epic_id', '')
+            epic_title = epic_data.get('title', '')
+            epic_description_text = epic_data.get('description', '')
+
             if dry_run:
-                print(f"  [DRY RUN] Would create Epic: {epic_data.get('title')}")
+                routing = self.resolve_routing(epic_title, epic_description_text)
+                print(
+                    f"  [DRY RUN] Would create Epic: {epic_title} "
+                    f"→ project={routing.project_key}, component={routing.component}"
+                )
                 continue
 
+            # Resolve routing for this epic (stories and tasks inherit same project/component)
+            routing = self.resolve_routing(epic_title, epic_description_text)
+            epic_project_key = routing.project_key or None
+            epic_component = routing.component or None
+
+            if routing.is_triage:
+                logger.warning(
+                    f"Epic '{epic_title}' routed to triage project '{routing.project_key}' "
+                    f"— no keyword match found"
+                )
+
+            # ── Live-Jira guard: skip epics whose target project doesn't exist ──
+            # Checks two sources:
+            #   1. DB registry  — project known to the system
+            #   2. Live Jira    — project actually exists in Jira right now
+            # If either check fails, skip this epic (a project_creation approval
+            # was (or will be) sent to the PM via the preflight check).
+            if epic_project_key:
+                project_exists_in_jira = (
+                    self._live_jira_keys is None          # unknown → optimistic
+                    or epic_project_key in self._live_jira_keys
+                )
+                if not project_exists_in_jira:
+                    logger.warning(
+                        f"Skipping '{epic_title}': project '{epic_project_key}' "
+                        f"does not exist in Jira — awaiting project_creation approval"
+                    )
+                    self.creation_result.errors.append(
+                        f"Epic '{epic_title}': project '{epic_project_key}' not in Jira "
+                        f"(pending project_creation approval)"
+                    )
+                    continue
+
+            logger.info(
+                f"Routing epic '{epic_title}' → project={routing.project_key}, "
+                f"component={routing.component}, matched={routing.matched_project}"
+            )
+
+            # Store routing decision for downstream DB persistence
+            self.creation_result.routing_decisions[epic_id] = {
+                "project_key": routing.project_key,
+                "team_name": routing.team_name,
+                "component": routing.component,
+                "confidence": round(routing.confidence, 3),
+                "source": (routing.decision_reason or "keyword_match")[:20],
+            }
+
             # Create Epic
-            epic_result = self.create_epic_in_jira(epic_data)
+            epic_result = self.create_epic_in_jira(
+                epic_data,
+                project_key=epic_project_key,
+                component=epic_component,
+            )
             
             if epic_result.success:
                 self.creation_result.epics_created += 1
                 
-                # Create Stories for this Epic
+                # Create Stories for this Epic (inherit routing from epic)
                 for story_data in epic_data.get('stories', []):
-                    story_result = self.create_story_in_jira(story_data, epic_result.jira_key)
+                    story_result = self.create_story_in_jira(
+                        story_data,
+                        epic_result.jira_key,
+                        project_key=epic_project_key,
+                        component=epic_component,
+                    )
                     
                     if story_result.success:
                         self.creation_result.stories_created += 1
                         
-                        # Create Tasks for this Story
+                        # Create Tasks for this Story (inherit routing from epic)
                         for task_data in story_data.get('tasks', []):
-                            task_result = self.create_task_in_jira(task_data, story_result.jira_key)
+                            task_result = self.create_task_in_jira(
+                                task_data,
+                                story_result.jira_key,
+                                project_key=epic_project_key,
+                                component=epic_component,
+                            )
                             
                             if task_result.success:
                                 self.creation_result.tasks_created += 1

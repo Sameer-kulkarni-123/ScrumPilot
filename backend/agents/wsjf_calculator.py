@@ -12,7 +12,18 @@ Phase: 3
 """
 
 import json
+import logging
+import sys
 from pathlib import Path
+
+# Ensure stdout handles unicode on Windows (cp1252 can't encode emoji)
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf-8-sig"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+logger = logging.getLogger(__name__)
 from typing import Dict, List, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -99,7 +110,7 @@ class WSJFCalculatorAgent:
         with open(pm_path, 'r', encoding='utf-8') as f:
             self.pm_data = json.load(f)
 
-        print(f"✅ Loaded PM data: {len(self.pm_data.get('epics', []))} Epic(s)")
+        logger.info(f"Loaded PM data: {len(self.pm_data.get('epics', []))} Epic(s)")
         return self.pm_data
 
     def load_grooming_data(self, grooming_data_path: str) -> Dict:
@@ -126,7 +137,7 @@ class WSJFCalculatorAgent:
         with open(grooming_path, 'r', encoding='utf-8') as f:
             self.grooming_data = json.load(f)
 
-        print(f"✅ Loaded Grooming data: {len(self.grooming_data.get('epic_estimates', []))} Epic(s)")
+        logger.info(f"Loaded Grooming data: {len(self.grooming_data.get('epic_estimates', []))} Epic(s)")
         return self.grooming_data
 
     def calculate_wsjf(
@@ -151,7 +162,7 @@ class WSJFCalculatorAgent:
             ValueError: If data is incomplete and allow_incomplete=False
         """
         # Load data
-        print("🔍 Loading meeting data...")
+        logger.info("Loading meeting data...")
         self.load_pm_data(pm_data_path)
         self.load_grooming_data(grooming_data_path)
 
@@ -169,7 +180,7 @@ class WSJFCalculatorAgent:
         incomplete_epics = []
         epics_with_wsjf = []
 
-        print("🧮 Calculating WSJF scores...")
+        logger.info("Calculating WSJF scores...")
 
         for epic_id, pm_epic in pm_epics.items():
             # Check if Epic has grooming estimates
@@ -273,13 +284,13 @@ class WSJFCalculatorAgent:
             incomplete_epics=incomplete_epics
         )
 
-        print(f"✅ Calculated WSJF for {len(validated_epics)} Epic(s)")
+        logger.info(f"Calculated WSJF for {len(validated_epics)} Epic(s)")
 
         if missing_epics:
-            print(f"⚠️  {len(missing_epics)} Epic(s) missing grooming estimates")
+            logger.warning(f"{len(missing_epics)} Epic(s) missing grooming estimates")
 
         if incomplete_epics:
-            print(f"⚠️  {len(incomplete_epics)} Epic(s) have incomplete data")
+            logger.warning(f"{len(incomplete_epics)} Epic(s) have incomplete data")
 
         return self.wsjf_data
 
@@ -308,7 +319,7 @@ class WSJFCalculatorAgent:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(wsjf_dict, f, indent=2, ensure_ascii=False)
 
-        print(f"💾 Saved WSJF data to: {output_file.absolute()}")
+        logger.info(f"Saved WSJF data to: {output_file.absolute()}")
         return str(output_file.absolute())
 
     def get_priority_summary(self) -> str:
@@ -379,7 +390,7 @@ def main():
         report_file.parent.mkdir(parents=True, exist_ok=True)
         with open(report_file, 'w', encoding='utf-8') as f:
             f.write(report)
-        print(f"\n💾 Saved report to: {report_file.absolute()}")
+        logger.info(f"Saved report to: {report_file.absolute()}")
 
         # Print priority summary
         print("\n" + "=" * 70)

@@ -80,24 +80,49 @@ async def send_approval_message(update: Update, session, approval: ApprovalReque
         message = format_sprint_approval(approval, request_data)
     elif approval.request_type == 'standup_update':
         message = format_standup_approval(approval, request_data)
+    elif approval.request_type == 'project_creation':
+        message = format_project_creation_approval(approval, request_data)
+    elif approval.request_type == 'routing_classification':
+        message = format_routing_card(approval, request_data)
     else:
         message = format_generic_approval(approval, request_data)
     
-    # Create inline keyboard with action buttons
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Approve", callback_data=f"approve_{approval.approval_id}"),
-            InlineKeyboardButton("❌ Reject", callback_data=f"reject_{approval.approval_id}")
-        ],
-        [
-            InlineKeyboardButton("✏️ Edit", callback_data=f"edit_{approval.approval_id}"),
-            InlineKeyboardButton("👁️ View Details", callback_data=f"view_{approval.approval_id}")
+    # Build keyboard — project_creation gets an extra "Edit Key" button
+    if approval.request_type == 'project_creation':
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Approve", callback_data=f"approve_{approval.approval_id}"),
+                InlineKeyboardButton("❌ Reject → Triage", callback_data=f"reject_{approval.approval_id}"),
+            ],
+            [
+                InlineKeyboardButton("✏️ Edit Key", callback_data=f"editkey_{approval.approval_id}"),
+            ],
         ]
-    ]
+    elif approval.request_type == 'routing_classification':
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Approve Routing", callback_data=f"approve_{approval.approval_id}"),
+                InlineKeyboardButton("❌ Reject", callback_data=f"reject_{approval.approval_id}"),
+            ],
+            [
+                InlineKeyboardButton("✏️ Edit Routing", callback_data=f"edit_{approval.approval_id}"),
+            ],
+        ]
+    else:
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Approve", callback_data=f"approve_{approval.approval_id}"),
+                InlineKeyboardButton("❌ Reject", callback_data=f"reject_{approval.approval_id}")
+            ],
+            [
+                InlineKeyboardButton("✏️ Edit", callback_data=f"edit_{approval.approval_id}"),
+                InlineKeyboardButton("👁️ View Details", callback_data=f"view_{approval.approval_id}")
+            ]
+        ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     # Send message (use markdown only for epic/story/sprint, not standup)
-    parse_mode = 'Markdown' if approval.request_type != 'standup_update' else None
+    parse_mode = 'Markdown' if approval.request_type not in ('standup_update',) else None
     
     await update.effective_message.reply_text(
         message,
@@ -240,6 +265,92 @@ def format_generic_approval(approval: ApprovalRequest, data: dict) -> str:
     return message
 
 
+def format_project_creation_approval(approval: ApprovalRequest, data: dict) -> str:
+    """Format new Jira project creation approval message."""
+    suggested_key = data.get('suggested_key', '???')
+    suggested_name = data.get('suggested_name', suggested_key)
+    confidence = data.get('confidence', 0.0)
+    items_count = data.get('items_count', 0)
+    sample_summaries = data.get('sample_summaries', [])
+
+    message = f"🆕 *New Jira Project Detected*\n\n"
+    message += f"*Request ID*: #{approval.approval_id}\n"
+    message += f"*Suggested Key*: `{suggested_key}`\n"
+    message += f"*Suggested Name*: {suggested_name}\n"
+    message += f"*Routing Confidence*: {confidence:.0%}\n"
+    message += f"*Items Waiting*: {items_count}\n"
+    message += f"*Priority*: {approval.priority.upper()}\n"
+    message += f"*Created*: {approval.created_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+
+    if sample_summaries:
+        message += "*Sample Items*:\n"
+        for i, s in enumerate(sample_summaries[:3], 1):
+            message += f"{i}. {s[:60]}\n"
+        if len(sample_summaries) > 3:
+            message += f"... and {len(sample_summaries) - 3} more\n"
+        message += "\n"
+
+    message += (
+        "💡 *Action Required*:\n"
+        "  ✅ Approve → Create project in Jira, continue routing\n"
+        "  ✏️ Edit Key → Change project key before creation\n"
+        "  ❌ Reject → Route all items to Triage instead"
+    )
+    return message
+
+
+def format_routing_card(approval: ApprovalRequest, data: dict) -> str:
+    """Format routing classification card for PM review before Jira creation."""
+    items = data.get('items', [])
+    total = data.get('total', len(items))
+    high = data.get('high_confidence_count', 0)
+    medium = data.get('medium_confidence_count', 0)
+    low = data.get('low_confidence_count', 0)
+
+    project_key = data.get('project_key', 'N/A')
+    decision_reason = data.get('decision_reason', 'keyword_match')
+    confidence = data.get('overall_confidence', 1.0)
+
+    method_label = {
+        'keyword_match': 'keyword match',
+        'llm': 'LLM classifier',
+        'forced': 'manual',
+        'triage_fallback': 'triage',
+        'triage_low_confidence': 'low-confidence triage',
+    }.get(decision_reason, decision_reason)
+
+    message = f"📋 *Routing Classification*\n\n"
+    message += f"*Request ID*: #{approval.approval_id}\n"
+    message += f"*Items*: {total}\n"
+    message += f"*Project*: `{project_key}` ({confidence:.0%} confidence, {method_label})\n"
+    message += f"*Created*: {approval.created_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+
+    if high or medium or low:
+        message += "*Confidence Breakdown*:\n"
+        if high:
+            message += f"  🟢 High (≥75%): {high} items\n"
+        if medium:
+            message += f"  🟡 Medium (40–74%): {medium} items\n"
+        if low:
+            message += f"  🔴 Low (<40%): {low} items — review recommended\n"
+        message += "\n"
+
+    if items:
+        message += "*Sample Items*:\n"
+        for i, item in enumerate(items[:5], 1):
+            summary = item.get('summary', 'Untitled')[:55]
+            team = item.get('team_name', '?')
+            item_conf = item.get('confidence', 1.0)
+            flag = '🔴' if item_conf < 0.40 else ('🟡' if item_conf < 0.75 else '🟢')
+            message += f"{flag} {i}. {summary} → *{team}*\n"
+        if len(items) > 5:
+            message += f"... and {len(items) - 5} more\n"
+        message += "\n"
+
+    message += "💡 *Action Required*: Approve routing to proceed with Jira creation"
+    return message
+
+
 async def send_approval_notification(telegram_user_id: int, telegram_chat_id: int, approval_id: int):
     """
     Send approval notification to user.
@@ -271,20 +382,45 @@ async def send_approval_notification(telegram_user_id: int, telegram_chat_id: in
             message = format_sprint_approval(approval, request_data)
         elif approval.request_type == 'standup_update':
             message = format_standup_approval(approval, request_data)
+        elif approval.request_type == 'project_creation':
+            message = format_project_creation_approval(approval, request_data)
+        elif approval.request_type == 'routing_classification':
+            message = format_routing_card(approval, request_data)
         else:
             message = format_generic_approval(approval, request_data)
         
         # Create inline keyboard
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ Approve", callback_data=f"approve_{approval.approval_id}"),
-                InlineKeyboardButton("❌ Reject", callback_data=f"reject_{approval.approval_id}")
-            ],
-            [
-                InlineKeyboardButton("✏️ Edit", callback_data=f"edit_{approval.approval_id}"),
-                InlineKeyboardButton("👁️ View Details", callback_data=f"view_{approval.approval_id}")
+        if approval.request_type == 'project_creation':
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Approve", callback_data=f"approve_{approval.approval_id}"),
+                    InlineKeyboardButton("❌ Reject → Triage", callback_data=f"reject_{approval.approval_id}"),
+                ],
+                [
+                    InlineKeyboardButton("✏️ Edit Key", callback_data=f"editkey_{approval.approval_id}"),
+                ],
             ]
-        ]
+        elif approval.request_type == 'routing_classification':
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Approve Routing", callback_data=f"approve_{approval.approval_id}"),
+                    InlineKeyboardButton("❌ Reject", callback_data=f"reject_{approval.approval_id}"),
+                ],
+                [
+                    InlineKeyboardButton("✏️ Edit Routing", callback_data=f"edit_{approval.approval_id}"),
+                ],
+            ]
+        else:
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Approve", callback_data=f"approve_{approval.approval_id}"),
+                    InlineKeyboardButton("❌ Reject", callback_data=f"reject_{approval.approval_id}")
+                ],
+                [
+                    InlineKeyboardButton("✏️ Edit", callback_data=f"edit_{approval.approval_id}"),
+                    InlineKeyboardButton("👁️ View Details", callback_data=f"view_{approval.approval_id}")
+                ]
+            ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # Send notification

@@ -13,6 +13,7 @@ import logging
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from backend.tools.jira_client import JiraManager
+from backend.tools.jira_routing import load_jira_routing_config, JiraRoutingResolver
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,15 @@ class JiraAgent:
             self.jira = JiraManager()
         else:
             self.jira = jira_manager
+
+        self.routing_resolver: Optional[JiraRoutingResolver] = None
+        try:
+            routing_config = load_jira_routing_config()
+            if routing_config:
+                self.routing_resolver = JiraRoutingResolver(routing_config)
+                logger.info("Jira routing config loaded for JiraAgent")
+        except Exception as e:
+            logger.warning(f"Routing config not loaded for JiraAgent: {e}")
         
         logger.info("JiraAgent initialized")
 
@@ -125,12 +135,21 @@ Summary:
         summary = action.get('summary')
         description = action.get('description', '')
         assignee = action.get('assignee')
+
+        project_key = None
+        component = None
+        if self.routing_resolver:
+            routing = self.routing_resolver.resolve(summary or "", description)
+            project_key = routing.project_key or None
+            component = routing.component or None
         
         result = self.jira.create_ticket(
             summary=summary,
             description=description,
             issue_type="Task",
-            assignee_email=assignee
+            assignee_email=assignee,
+            project_key=project_key,
+            component=component,
         )
         
         if result.get('success'):

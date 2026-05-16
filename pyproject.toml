@@ -8,3 +8,8 @@ dependencies = [
     "resemblyzer>=0.1.4",
     "soundfile>=0.13.1",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.0.3",
+]

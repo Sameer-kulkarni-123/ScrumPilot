@@ -169,6 +169,8 @@ class JiraManager:
         assignee_email: Optional[str] = None,
         parent_key: Optional[str] = None,
         epic_link: Optional[str] = None,
+        project_key: Optional[str] = None,
+        component: Optional[str] = None,
     ) -> Dict:
         """
         Creates a new Jira issue with automatic retry on transient failures.
@@ -180,6 +182,8 @@ class JiraManager:
             assignee_email: Optional email of the user to assign immediately.
             parent_key: Optional parent issue key (for Sub-tasks or Tasks under Stories).
             epic_link: Optional Epic key to link this issue to (for Stories under Epics).
+            project_key: Override the default project key for this call.
+            component: Jira component name to assign (e.g. "Backend", "Frontend").
 
         Returns:
             dict with keys: success (bool), key (str), summary (str), message (str)
@@ -187,7 +191,8 @@ class JiraManager:
         # Wrap the actual creation in retry logic
         return self._retry_with_backoff(
             self._create_ticket_internal,
-            summary, description, issue_type, assignee_email, parent_key, epic_link
+            summary, description, issue_type, assignee_email, parent_key, epic_link,
+            project_key, component
         )
     
     def _create_ticket_internal(
@@ -198,20 +203,27 @@ class JiraManager:
         assignee_email: Optional[str],
         parent_key: Optional[str],
         epic_link: Optional[str],
+        project_key: Optional[str] = None,
+        component: Optional[str] = None,
     ) -> Dict:
         """Internal method that performs the actual ticket creation."""
         # Enforce rate limiting before API call
         self._enforce_rate_limit()
         
+        effective_project_key = project_key or self.project_key
+        
         try:
             fields = {
-                "project": self.project_key,
+                "project": {"key": effective_project_key},
                 "summary": summary,
                 "description": description,
                 "issuetype": {"name": issue_type},
             }
             if assignee_email:
                 fields["assignee"] = {"name": assignee_email}
+            
+            if component:
+                fields["components"] = [{"name": component}]
             
             # Set parent field for Sub-tasks and Tasks
             if parent_key:
@@ -238,6 +250,8 @@ class JiraManager:
         summary: str,
         description: str = "",
         epic_name: Optional[str] = None,
+        project_key: Optional[str] = None,
+        component: Optional[str] = None,
     ) -> Dict:
         """
         Creates a new Epic in Jira with automatic retry on transient failures.
@@ -246,6 +260,8 @@ class JiraManager:
             summary: Epic title/summary.
             description: Detailed Epic description.
             epic_name: Optional Epic name (short identifier) - NOT USED (field varies by Jira config).
+            project_key: Override the default project key for this call.
+            component: Jira component name to assign (e.g. "Backend", "Frontend").
 
         Returns:
             dict with keys: success (bool), key (str), summary (str), message (str)
@@ -253,7 +269,7 @@ class JiraManager:
         # Wrap the actual creation in retry logic
         return self._retry_with_backoff(
             self._create_epic_internal,
-            summary, description, epic_name
+            summary, description, epic_name, project_key, component
         )
     
     def _create_epic_internal(
@@ -261,18 +277,25 @@ class JiraManager:
         summary: str,
         description: str,
         epic_name: Optional[str],
+        project_key: Optional[str] = None,
+        component: Optional[str] = None,
     ) -> Dict:
         """Internal method that performs the actual Epic creation."""
         # Enforce rate limiting before API call
         self._enforce_rate_limit()
         
+        effective_project_key = project_key or self.project_key
+        
         try:
             fields = {
-                "project": self.project_key,
+                "project": {"key": effective_project_key},
                 "summary": summary,
                 "description": description,
                 "issuetype": {"name": "Epic"},
             }
+            
+            if component:
+                fields["components"] = [{"name": component}]
             
             # Note: Epic Name field (customfield_10011) is not set because:
             # 1. Field ID varies by Jira configuration
@@ -436,6 +459,7 @@ class JiraManager:
         assignee_email: Optional[str] = None,
         status: Optional[str] = None,
         max_results: int = 10,
+        project_key: Optional[str] = None,
     ) -> Dict:
         """
         Searches for tickets in the project using optional filters.
@@ -445,6 +469,7 @@ class JiraManager:
             assignee_email: Filter by assignee.
             status: Filter by status name (e.g. "To Do", "In Progress", "Done").
             max_results: Maximum number of results.
+            project_key: Override the default project key for this search.
 
         Returns:
             dict with keys: success (bool), issues (list of dicts with key, summary, status, assignee)
@@ -452,8 +477,10 @@ class JiraManager:
         # Enforce rate limiting before API call
         self._enforce_rate_limit()
         
+        effective_project_key = project_key or self.project_key
+        
         try:
-            clauses = [f'project = "{self.project_key}"']
+            clauses = [f'project = "{effective_project_key}"']
             if summary_query:
                 clauses.append(f'summary ~ "{summary_query}"')
             if assignee_email:

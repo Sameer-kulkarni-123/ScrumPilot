@@ -160,3 +160,66 @@ async def handle_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += f"  Email: {member.email or 'N/A'}\n\n"
         
         await update.message.reply_text(message, parse_mode='Markdown')
+
+
+async def handle_routing_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handle /routing_status command — show Jira routing config health.
+
+    Displays:
+    - Active confidence thresholds (from env vars)
+    - Known projects from registry
+    - Pending routing / project-creation approvals
+    """
+    import os
+    from backend.db.models import JiraProjectRegistry, ApprovalRequest
+
+    high_threshold = os.getenv("ROUTING_HIGH_CONFIDENCE", "0.75")
+    medium_threshold = os.getenv("ROUTING_MEDIUM_CONFIDENCE", "0.40")
+    routing_config_path = os.getenv("JIRA_ROUTING_CONFIG_PATH", "not set")
+
+    with get_session() as session:
+        db_user = session.query(User).filter(
+            User.telegram_user_id == update.effective_user.id
+        ).first()
+        if not db_user:
+            await update.message.reply_text(
+                "❌ Your account is not linked.\n\nUse /start to link your account."
+            )
+            return
+
+        try:
+            projects = session.query(JiraProjectRegistry).filter(
+                JiraProjectRegistry.status == "active"
+            ).all()
+            project_lines = "\n".join(
+                f"  \u2022 `{p.project_key}` \u2014 {p.name}"
+                + (" _(auto-created)_" if p.auto_created else "")
+                for p in projects
+            ) or "  _(none \u2014 registry not yet seeded)_"
+            project_count = len(projects)
+        except Exception:
+            project_lines = "  _(registry table not found \u2014 run migration 003)_"
+            project_count = "?"
+
+        try:
+            pending = session.query(ApprovalRequest).filter(
+                ApprovalRequest.request_type.in_(
+                    ["project_creation", "routing_classification"]
+                ),
+                ApprovalRequest.status == "pending",
+            ).count()
+        except Exception:
+            pending = 0
+
+        message = (
+            "\u2699\ufe0f *Jira Routing Status*\n\n"
+            f"*Config file*: `{routing_config_path}`\n"
+            f"*High-confidence threshold*: {high_threshold} (auto-route)\n"
+            f"*Medium-confidence threshold*: {medium_threshold} (route with card)\n\n"
+            f"*Known Projects* ({project_count}):\n"
+            f"{project_lines}\n\n"
+            f"*Pending routing approvals*: {pending}\n\n"
+            "Use `/approvals` to review pending routing decisions."
+        )
+        await update.message.reply_text(message, parse_mode='Markdown')

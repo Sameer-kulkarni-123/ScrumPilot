@@ -608,10 +608,28 @@ class BacklogPipeline:
         else:
             print("    JIRA_API_TOKEN: OK")
         
-        if not os.getenv('JIRA_PROJECT_KEY'):
-            errors.append("JIRA_PROJECT_KEY environment variable not set")
-        else:
-            print(f"    JIRA_PROJECT_KEY: OK ({os.getenv('JIRA_PROJECT_KEY')})")
+        jira_project_key = os.getenv('JIRA_PROJECT_KEY')
+        jira_routing_config_path = os.getenv('JIRA_ROUTING_CONFIG_PATH')
+
+        if jira_project_key:
+            print(f"    JIRA_PROJECT_KEY: OK ({jira_project_key})")
+
+        if jira_routing_config_path:
+            routing_path = Path(jira_routing_config_path)
+            if not routing_path.is_absolute():
+                routing_path = Path.cwd() / routing_path
+
+            if not routing_path.exists():
+                errors.append(
+                    f"JIRA_ROUTING_CONFIG_PATH does not exist: {routing_path}"
+                )
+            else:
+                print(f"    JIRA_ROUTING_CONFIG_PATH: OK ({routing_path})")
+
+        if not jira_project_key and not jira_routing_config_path:
+            errors.append(
+                "Either JIRA_PROJECT_KEY or JIRA_ROUTING_CONFIG_PATH must be set"
+            )
         
         # 3. Test Jira connectivity (only if keys are set)
         if not any('JIRA' in e for e in errors):
@@ -891,13 +909,17 @@ class BacklogPipeline:
         Create complete hierarchy in Jira with partial failure handling.
         
         If one Epic fails, continues with remaining Epics and reports failures.
+        Runs a pre-flight routing check: unknown projects trigger a PM approval
+        request and those items are routed to triage in the meantime.
         """
         print("Creating backlog in Jira...")
         print("(Partial failure handling enabled)")
         
         if dry_run:
             print("  DRY RUN MODE - No actual Jira creation")
-        
+
+        self._preflight_routing_check(decomposed_file, dry_run)
+
         agent = JiraCreatorAgent()
         
         # Use partial failure mode
@@ -947,8 +969,462 @@ class BacklogPipeline:
             )
         
         print(f"\nSaved to: {output_path}")
+
+        # Save Epic/Story/Task rows to DB, then persist routing metadata
+        self._save_jira_result_to_db(result, decomposed_file)
+        self._persist_routing_metadata(result)
         
         return output_path
+
+    def _save_jira_result_to_db(self, result, decomposed_file: str) -> None:
+        """
+        Persist Epic / Story / Task ORM rows to DB after direct Jira creation.
+
+        Mirrors the DB-save logic inside execute_epic_creation (Telegram path)
+        so that `verify_routing.py` and sprint planning can query the DB even
+        when Telegram approval is bypassed.
+        """
+        try:
+            import json as _json
+            from backend.db.connection import get_session
+            from backend.db import crud
+            from backend.db.models import (
+                Meeting, ProcessingRun, Epic, Story, BacklogTask,
+                MeetingType, RunType, RunStatus,
+            )
+            from datetime import timezone
+
+            with open(decomposed_file, "r") as f:
+                decomposed_data = _json.load(f)
+
+            with get_session() as session:
+                # Reuse or create a Meeting row
+                meeting = (
+                    session.query(Meeting)
+                    .filter(Meeting.meeting_type == MeetingType.PM)
+                    .filter(Meeting.title.like("%Backlog%"))
+                    .order_by(Meeting.created_at.desc())
+                    .first()
+                )
+                if not meeting:
+                    meeting = Meeting(
+                        meeting_type=MeetingType.PM,
+                        title="Backlog Pipeline - Direct Run",
+                        meeting_date=datetime.now().date(),
+                        source_platform="pipeline",
+                        status="completed",
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    session.add(meeting)
+                    session.flush()
+
+                # Reuse or create a ProcessingRun row
+                processing_run = (
+                    session.query(ProcessingRun)
+                    .filter(ProcessingRun.meeting_id == meeting.id)
+                    .filter(ProcessingRun.run_type == RunType.PM_BACKLOG)
+                    .order_by(ProcessingRun.created_at.desc())
+                    .first()
+                )
+                if not processing_run:
+                    max_run = (
+                        session.query(ProcessingRun)
+                        .filter(ProcessingRun.meeting_id == meeting.id)
+                        .order_by(ProcessingRun.run_number.desc())
+                        .first()
+                    )
+                    processing_run = ProcessingRun(
+                        meeting_id=meeting.id,
+                        run_number=(max_run.run_number + 1) if max_run else 1,
+                        run_type=RunType.PM_BACKLOG,
+                        status=RunStatus.COMPLETED,
+                        started_at=datetime.now(timezone.utc),
+                        finished_at=datetime.now(timezone.utc),
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    session.add(processing_run)
+                    session.flush()
+
+                epics_saved = stories_saved = tasks_saved = 0
+
+                for jira_epic in result.epics:
+                    if not jira_epic.success or not jira_epic.jira_key:
+                        continue
+
+                    epic_data = next(
+                        (e for e in decomposed_data["epics"] if e["epic_id"] == jira_epic.epic_id),
+                        None,
+                    )
+                    if not epic_data:
+                        continue
+
+                    db_epic = session.query(Epic).filter(
+                        Epic.jira_key == jira_epic.jira_key
+                    ).first()
+
+                    if not db_epic:
+                        db_epic = crud.create_epic(
+                            session=session,
+                            meeting_id=meeting.id,
+                            processing_run_id=processing_run.id,
+                            title=jira_epic.title,
+                            description=epic_data.get("description", ""),
+                            business_value=epic_data.get("business_value", 5),
+                            time_criticality=epic_data.get("time_criticality", 5),
+                            risk_reduction=epic_data.get("risk_reduction", 5),
+                            job_size=epic_data.get("job_size", 5),
+                            wsjf_score=jira_epic.wsjf_score,
+                            priority_rank=jira_epic.priority_rank,
+                        )
+                        crud.update_epic_jira_info(
+                            session=session,
+                            epic_id=db_epic.id,
+                            jira_key=jira_epic.jira_key,
+                            jira_status="To Do",
+                            jira_synced_at=datetime.now(timezone.utc),
+                        )
+                    epics_saved += 1
+
+                    for jira_story in jira_epic.stories:
+                        if not jira_story.success or not jira_story.jira_key:
+                            continue
+
+                        story_data = next(
+                            (s for s in epic_data["stories"] if s["story_id"] == jira_story.story_id),
+                            None,
+                        )
+                        if not story_data:
+                            continue
+
+                        db_story = session.query(Story).filter(
+                            Story.jira_key == jira_story.jira_key
+                        ).first()
+
+                        if not db_story:
+                            db_story = crud.create_story(
+                                session=session,
+                                epic_id=db_epic.id,
+                                meeting_id=meeting.id,
+                                processing_run_id=processing_run.id,
+                                title=jira_story.title,
+                                description=story_data.get("description", ""),
+                                acceptance_criteria=story_data.get("acceptance_criteria", []),
+                            )
+                            crud.update_story_jira_info(
+                                session=session,
+                                story_id=db_story.id,
+                                jira_key=jira_story.jira_key,
+                                jira_status="To Do",
+                                jira_synced_at=datetime.now(timezone.utc),
+                            )
+                        stories_saved += 1
+
+                        for jira_task in jira_story.tasks:
+                            if not jira_task.success or not jira_task.jira_key:
+                                continue
+
+                            task_data = next(
+                                (t for t in story_data["tasks"] if t["task_id"] == jira_task.task_id),
+                                None,
+                            )
+                            if not task_data:
+                                continue
+
+                            db_task = session.query(BacklogTask).filter(
+                                BacklogTask.jira_key == jira_task.jira_key
+                            ).first()
+
+                            if not db_task:
+                                db_task = crud.create_backlog_task(
+                                    session=session,
+                                    story_id=db_story.id,
+                                    meeting_id=meeting.id,
+                                    processing_run_id=processing_run.id,
+                                    title=jira_task.title,
+                                    description=task_data.get("description", ""),
+                                    estimated_hours=jira_task.estimated_hours,
+                                )
+                                crud.update_task_jira_info(
+                                    session=session,
+                                    task_id=db_task.id,
+                                    jira_key=jira_task.jira_key,
+                                    jira_status="To Do",
+                                    jira_synced_at=datetime.now(timezone.utc),
+                                )
+                            tasks_saved += 1
+
+                session.commit()
+                logger.info(
+                    f"DB save complete: {epics_saved} epics, "
+                    f"{stories_saved} stories, {tasks_saved} tasks"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to save Jira result to DB (non-fatal): {e}")
+
+    def _persist_routing_metadata(self, result) -> None:
+        """
+        Update Epic / Story / Task DB rows with routing metadata after Jira creation.
+
+        Uses routing_decisions (epic_id → routing dict) and id_mapping
+        (epic_id → jira_key) from JiraCreationResult to find and update rows.
+        """
+        if not result.routing_decisions:
+            return
+        try:
+            from backend.db.connection import get_session
+            from backend.db.models import Epic, Story, BacklogTask
+            from backend.services.routing_service import (
+                persist_routing_on_epic,
+                persist_routing_on_story,
+                persist_routing_on_task,
+            )
+            from backend.tools.jira_routing import RoutingDecision
+
+            with get_session() as session:
+                for epic_result in result.epics:
+                    epic_id = epic_result.epic_id
+                    jira_key = epic_result.jira_key
+                    routing_data = result.routing_decisions.get(epic_id)
+                    if not routing_data or not jira_key:
+                        continue
+
+                    decision = RoutingDecision(
+                        project_key=routing_data.get("project_key", ""),
+                        project_name=routing_data.get("project_key", ""),
+                        component=routing_data.get("component"),
+                        matched_project=True,
+                        matched_team=routing_data.get("team_name") is not None,
+                        team_name=routing_data.get("team_name"),
+                        confidence=routing_data.get("confidence", 1.0),
+                        decision_reason=routing_data.get("source", "keyword_match"),
+                    )
+
+                    # Update Epic row
+                    epic_row = session.query(Epic).filter(Epic.jira_key == jira_key).first()
+                    if epic_row:
+                        persist_routing_on_epic(epic_row, decision)
+
+                    # Update Story rows
+                    for story_result in epic_result.stories:
+                        story_jira_key = story_result.jira_key
+                        if story_jira_key:
+                            story_row = session.query(Story).filter(
+                                Story.jira_key == story_jira_key
+                            ).first()
+                            if story_row:
+                                persist_routing_on_story(story_row, decision)
+
+                        # Update Task rows
+                        for task_result in story_result.tasks:
+                            task_jira_key = task_result.jira_key
+                            if task_jira_key:
+                                task_row = session.query(BacklogTask).filter(
+                                    BacklogTask.jira_key == task_jira_key
+                                ).first()
+                                if task_row:
+                                    persist_routing_on_task(task_row, decision)
+
+                session.commit()
+                logger.info("Routing metadata persisted for all created Jira items")
+        except Exception as e:
+            logger.warning(f"Failed to persist routing metadata (non-fatal): {e}")
+
+    # ========================================================================
+    # ROUTING PRE-FLIGHT
+    # ========================================================================
+
+    def _preflight_routing_check(self, decomposed_file: str, dry_run: bool = False) -> None:
+        """
+        Pre-flight routing check before Jira creation.
+
+        Steps:
+        1. Load backlog JSON and resolve routing per epic using HybridRoutingService.
+        2. Collect unique project keys that are not in the local registry.
+        3. For each unknown project: create a project_creation ApprovalRequest
+           and warn that those items will be routed to triage until approved.
+        4. If any items have low confidence: create a routing_classification
+           ApprovalRequest for PM review (non-blocking warning).
+
+        This method is a best-effort guard and never raises — failures are logged
+        and execution continues so Jira creation can still proceed.
+        """
+        try:
+            import json
+            from collections import defaultdict
+            from backend.db.connection import get_session
+            from backend.db.models import User
+            from backend.services.routing_service import (
+                create_project_approval_request,
+                create_routing_card_approval_request,
+            )
+            from backend.tools.jira_client import JiraManager
+            from backend.tools.llm_project_router import LLMProjectRouter
+            from backend.tools.jira_routing import load_jira_routing_config
+
+            # ── Load decomposed backlog ───────────────────────────────────────
+            with open(decomposed_file, "r", encoding="utf-8") as fh:
+                backlog = json.load(fh)
+            epics = backlog.get("epics", [])
+            if not epics:
+                return
+
+            # ── Fetch live Jira projects ──────────────────────────────────────
+            # None  = API failed → optimistic
+            # []    = Jira has no projects → all epics need new projects
+            live_jira_projects: Optional[list] = None
+            live_jira_keys:     Optional[set]  = None
+            try:
+                _jm = JiraManager()
+                raw = _jm.client.projects()
+                live_jira_projects = [{"key": p.key, "name": p.name} for p in raw]
+                live_jira_keys     = {p["key"] for p in live_jira_projects}
+                logger.info(f"Preflight: live Jira projects = {live_jira_keys or '(none)'}")
+            except Exception as _je:
+                logger.warning(f"Preflight: could not fetch live Jira project list: {_je}")
+
+            # ── Load optional jira_routing.json hints ─────────────────────────
+            hint_projects: list = []
+            try:
+                routing_config = load_jira_routing_config()
+                if routing_config:
+                    hint_projects = [
+                        {"key": p.key, "name": p.name}
+                        for p in routing_config.projects
+                    ]
+            except Exception:
+                pass
+
+            # ── Build LLM router with live context ───────────────────────────
+            llm_router = LLMProjectRouter(
+                live_projects=live_jira_projects or [],
+                hint_projects=hint_projects,
+            )
+
+            # ── Route each epic ───────────────────────────────────────────────
+            items_by_decision: list = []
+            for epic in epics:
+                summary     = epic.get("title", "")
+                description = epic.get("description", "")
+                decision    = llm_router.route(summary, description)
+                items_by_decision.append(
+                    {"summary": summary, "description": description, "decision": decision}
+                )
+
+            # Group by suggested/resolved project key
+            per_project: dict = defaultdict(list)
+            for entry in items_by_decision:
+                per_project[entry["decision"].project_key].append(entry)
+
+            decisions  = [e["decision"] for e in items_by_decision]
+            flat_items = [
+                {"summary": e["summary"], "description": e["description"]}
+                for e in items_by_decision
+            ]
+
+            low_confidence_count = sum(
+                1 for d in decisions if d.confidence < 0.5
+            )
+
+            # ── Find PM user ──────────────────────────────────────────────────
+            with get_session() as session:
+                try:
+                    from sqlalchemy import case
+                    # Prefer product_owner → admin → any linked user
+                    pm_user = (
+                        session.query(User)
+                        .filter(User.telegram_user_id.isnot(None))
+                        .join(User.role, isouter=True)
+                        .order_by(
+                            case(
+                                (User.role_id.isnot(None), 0),
+                                else_=1
+                            ),
+                            User.id.asc(),
+                        )
+                        .first()
+                    )
+                    assigned_to = pm_user.id if pm_user else None
+                    pm_tg_user  = pm_user.telegram_user_id if pm_user else None
+                    pm_tg_chat  = pm_user.telegram_chat_id  if pm_user else None
+                except Exception:
+                    assigned_to = pm_tg_user = pm_tg_chat = None
+
+                if assigned_to is None:
+                    logger.warning(
+                        "No PM user with Telegram ID found — "
+                        "routing approvals will not be sent"
+                    )
+                    return
+
+                # ── Create project_creation approvals for missing projects ────
+                for project_key, epic_entries in per_project.items():
+                    # live_jira_keys is None → fetch failed, optimistic
+                    # live_jira_keys is set() → Jira empty, all are missing
+                    in_jira = live_jira_keys is None or project_key in live_jira_keys
+                    decision_for_key = epic_entries[0]["decision"]
+                    is_new = decision_for_key.is_new_project_candidate or not in_jira
+
+                    if not is_new:
+                        continue
+
+                    items_for_key = [
+                        {"summary": e["summary"], "description": e["description"]}
+                        for e in epic_entries
+                    ]
+                    approval_id = create_project_approval_request(
+                        decision_for_key, items_for_key, assigned_to, session
+                    )
+                    if approval_id:
+                        msg = (
+                            f"New Jira project '{project_key}' needed — "
+                            f"approval #{approval_id} created for PM. "
+                            f"{len(items_for_key)} epic(s) held until approved."
+                        )
+                        self.result.warnings.append(msg)
+                        logger.warning(msg)
+                        if not dry_run:
+                            try:
+                                from backend.telegram.services.approval_service import ApprovalService
+                                ApprovalService._send_telegram_notification(
+                                    telegram_user_id=pm_tg_user,
+                                    telegram_chat_id=pm_tg_chat,
+                                    approval_id=approval_id,
+                                )
+                                logger.info(
+                                    f"Telegram notification sent to PM "
+                                    f"(user_id={pm_tg_user}) "
+                                    f"for project_creation approval #{approval_id}"
+                                )
+                            except Exception as notify_err:
+                                logger.warning(
+                                    f"Could not send Telegram notification: {notify_err}"
+                                )
+
+                # ── Routing card for low-confidence items ─────────────────────
+                if low_confidence_count > 0:
+                    card_id = create_routing_card_approval_request(
+                        decisions, flat_items, assigned_to, session
+                    )
+                    if card_id:
+                        logger.info(
+                            f"Routing card approval #{card_id} created — "
+                            f"{low_confidence_count} low-confidence epic(s) flagged"
+                        )
+                        if not dry_run:
+                            try:
+                                from backend.telegram.services.approval_service import ApprovalService
+                                ApprovalService._send_telegram_notification(
+                                    telegram_user_id=pm_tg_user,
+                                    telegram_chat_id=pm_tg_chat,
+                                    approval_id=card_id,
+                                )
+                            except Exception as _notify_err:
+                                logger.warning(
+                                    f"Could not send routing card notification: {_notify_err}"
+                                )
+
+        except Exception as e:
+            logger.warning(f"Pre-flight routing check failed (non-fatal): {e}")
 
     # ========================================================================
     # HELPER METHODS

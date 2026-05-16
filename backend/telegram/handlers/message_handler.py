@@ -10,7 +10,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from backend.telegram.handlers.start_handler import handle_email_linking
-from backend.telegram.handlers.callback_handler import handle_rejection_reason
+from backend.telegram.handlers.callback_handler import handle_rejection_reason, handle_editkey_input
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -20,10 +20,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check conversation state
     if context.user_data.get('awaiting_email'):
         await handle_email_linking(update, context)
-    
+
+    elif context.user_data.get('pending_editkey_approval_id'):
+        await handle_editkey_input(update, context)
+
     elif context.user_data.get('awaiting_rejection_reason'):
         await handle_rejection_reason(update, context)
-    
+
     else:
         # No active conversation - show help
         await update.message.reply_text(
