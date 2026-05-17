@@ -53,7 +53,7 @@ async def handle_sprint(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if sprint.team_capacity_hours:
             message += f"*Team Capacity*: {sprint.team_capacity_hours} hours\n"
         
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message)
 
 
 async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -118,7 +118,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message += f"   Estimate: {task.estimated_hours}h\n"
             message += "\n"
         
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message)
 
 
 async def handle_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -136,10 +136,8 @@ async def handle_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Get all users with Telegram linked
-        team_members = session.query(User).filter(
-            User.telegram_user_id.isnot(None)
-        ).all()
+        # Get all active ScrumPilot users. Some may not have linked Telegram yet.
+        team_members = session.query(User).order_by(User.display_name.asc()).all()
         
         if not team_members:
             await update.message.reply_text(
@@ -152,11 +150,13 @@ async def handle_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         for member in team_members:
             role = member.role.role_name if member.role else 'No role'
-            telegram_username = f"@{member.telegram_username}" if member.telegram_username else "No username"
+            telegram_username = f"@{member.telegram_username}" if member.telegram_username else "Not linked"
+            jira_identity = member.jira_account_id or member.email or "Not linked"
             
             message += f"• *{member.display_name}*\n"
             message += f"  Role: {role}\n"
             message += f"  Telegram: {telegram_username}\n"
-            message += f"  Email: {member.email or 'N/A'}\n\n"
+            message += f"  Email: {member.email or 'N/A'}\n"
+            message += f"  Jira: {jira_identity}\n\n"
         
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message)

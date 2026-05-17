@@ -40,6 +40,154 @@ from backend.pipelines.scrum_pipeline import ScrumPipeline
 from backend.pipelines.sprint_planning_pipeline import SprintPlanningPipeline
 
 
+def complete_meet_bot_from_transcript(
+    transcript: str,
+    force_type: str = None,
+    transcript_file: str = None,
+):
+    """
+    Run the Complete Meet Bot workflow starting from Step 4.
+
+    This skips:
+    1. Join Google Meet
+    2. Record audio
+    3. Transcribe speech
+
+    And runs:
+    4. Detect meeting type
+    5. Run appropriate pipeline
+    6. Create approval request
+    7. Send Telegram notification automatically
+
+    Jira updates still happen later through the normal Telegram approval callback.
+    """
+    bot_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    print("\n" + "=" * 80)
+    print("COMPLETE MEET BOT - Transcript Mode")
+    print("=" * 80)
+    print(f"Bot ID: {bot_id}")
+    print(f"Force Type: {force_type or 'Auto-detect'}")
+    print("=" * 80 + "\n")
+
+    if not transcript_file:
+        output_dir = "backend/data/telegram_transcripts"
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        transcript_file = os.path.join(output_dir, f"{bot_id}_transcript.txt")
+        with open(transcript_file, 'w', encoding='utf-8') as f:
+            f.write(transcript)
+
+    try:
+        print("=" * 80)
+        print("PHASE 4: DETECT MEETING TYPE")
+        print("=" * 80 + "\n")
+
+        if force_type:
+            detected_type = force_type
+            confidence = 1.0
+            print(f"Using forced type: {detected_type}")
+        else:
+            detector = MeetingTypeDetector()
+            detection = detector.detect(transcript)
+            detected_type = detection.meeting_type
+            confidence = detection.confidence
+
+            print(f"Detected: {detected_type}")
+            print(f"Confidence: {confidence:.0%}")
+            print(f"Keywords: {', '.join(detection.keywords_found[:5])}")
+
+            if detected_type == 'unknown':
+                return {
+                    'status': 'failed',
+                    'error': 'Unknown meeting type',
+                    'transcript_file': transcript_file,
+                }
+
+        print()
+        print("=" * 80)
+        print(f"PHASE 5: RUN {detected_type.upper()} PIPELINE")
+        print("=" * 80 + "\n")
+
+        if detected_type == 'daily_standup':
+            print("Running Scrum Pipeline...")
+            pipeline = ScrumPipeline(require_telegram_approval=True)
+            result = pipeline.run(
+                transcript_path=transcript_file,
+                update_jira=True,
+                dry_run=False,
+            )
+
+            pipeline_result = {
+                'pipeline': 'scrum',
+                'status': result.status,
+                'approval_id': result.approval_id,
+                'total_actions': result.total_actions,
+                'tasks_completed': result.tasks_completed,
+                'tasks_updated': result.tasks_updated,
+            }
+
+        elif detected_type == 'sprint_planning':
+            print("Running Sprint Planning Pipeline...")
+            pipeline = SprintPlanningPipeline(require_telegram_approval=True)
+            result = pipeline.run(
+                transcript_path=transcript_file,
+                create_in_jira=True,
+                dry_run=False,
+            )
+
+            pipeline_result = {
+                'pipeline': 'sprint_planning',
+                'status': result.status,
+                'approval_id': result.approval_id,
+                'sprint_goal': result.sprint_goal if hasattr(result, 'sprint_goal') else 'N/A',
+                'stories_committed': result.stories_committed if hasattr(result, 'stories_committed') else 0,
+            }
+
+        elif detected_type in ['pm_backlog', 'grooming']:
+            return {
+                'status': 'failed',
+                'error': 'Backlog pipeline not integrated',
+                'transcript_file': transcript_file,
+                'detected_type': detected_type,
+            }
+
+        else:
+            return {
+                'status': 'failed',
+                'error': f'Unknown meeting type: {detected_type}',
+                'transcript_file': transcript_file,
+            }
+
+        print("\n" + "=" * 80)
+        print("COMPLETE MEET BOT - TRANSCRIPT MODE SUCCESS!")
+        print("=" * 80)
+        print(f"Meeting Type: {detected_type}")
+        print(f"Confidence: {confidence:.0%}")
+        print(f"Pipeline: {pipeline_result['pipeline']}")
+        print(f"Status: {pipeline_result['status']}")
+        print(f"Approval ID: #{pipeline_result['approval_id']}")
+        print("=" * 80 + "\n")
+
+        return {
+            'status': 'success',
+            'bot_id': bot_id,
+            'transcript_file': transcript_file,
+            'detected_type': detected_type,
+            'confidence': confidence,
+            'pipeline_result': pipeline_result,
+        }
+
+    except Exception as e:
+        print(f"\nERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'status': 'failed',
+            'error': str(e),
+            'transcript_file': transcript_file,
+        }
+
+
 async def complete_meet_bot(meet_link: str, force_type: str = None):
     """
     Complete meet bot workflow.

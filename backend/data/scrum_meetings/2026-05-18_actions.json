@@ -1,0 +1,61 @@
+[
+  {
+    "action": "complete_task",
+    "summary": "MIN-27",
+    "description": "Setup Stripe payment gateway API",
+    "assignee": "Vaibhav Kumar",
+    "status": "Done"
+  },
+  {
+    "action": "update_status",
+    "summary": "MIN-28",
+    "description": "Implement credit card payment form and validation",
+    "assignee": "Vaibhav Kumar",
+    "status": "In Progress"
+  },
+  {
+    "action": "update_status",
+    "summary": "MIN-32",
+    "description": "Develop subscription management UI for customers",
+    "assignee": "Sameer Kulkarni",
+    "status": "In Progress"
+  },
+  {
+    "action": "update_status",
+    "summary": "MIN-31",
+    "description": "Implement subscription plan management with Stripe",
+    "assignee": "Sameer Kulkarni",
+    "status": "To Do"
+  },
+  {
+    "action": "update_status",
+    "summary": "MIN-37",
+    "description": "Integrate payment event handling with Stripe webhooks",
+    "assignee": "test user",
+    "status": "In Progress"
+  },
+  {
+    "action": "update_status",
+    "summary": "MIN-35",
+    "description": "Implement payment event logging and dashboard",
+    "assignee": "test user",
+    "status": "In Progress"
+  },
+  {
+    "action": "update_status",
+    "summary": "MIN-29",
+    "description": "Integrate payment processing with order management",
+    "assignee": "Vaibhav Kumar",
+    "status": "In Progress"
+  },
+  {
+    "action": "add_comment",
+    "summary": "MIN-31",
+    "comment": "Needs Stripe API keys from DevOps for testing"
+  },
+  {
+    "action": "add_comment",
+    "summary": "MIN-28",
+    "comment": "Waiting for error message copy from UX team"
+  }
+]

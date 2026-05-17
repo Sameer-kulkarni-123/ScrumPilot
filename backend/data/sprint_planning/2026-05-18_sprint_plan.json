@@ -1,0 +1,69 @@
+{
+  "sprint_goal": "Complete payment gateway integration (production-ready)",
+  "sprint_number": 24,
+  "sprint_duration_weeks": 2,
+  "start_date": "2026-04-14",
+  "end_date": "2026-04-25",
+  "team_capacity": {
+    "total_hours": 320,
+    "team_size": 5,
+    "velocity_last_sprint": 19,
+    "availability_notes": "Sameer Kulkarni is on PTO next week for 3 days"
+  },
+  "commitment": {
+    "story_ids": [
+      "MIN-26",
+      "MIN-30",
+      "MIN-34"
+    ],
+    "story_points": 21,
+    "estimated_hours": 210
+  },
+  "developer_assignments": [
+    {
+      "developer_name": "Vaibhav Kumar",
+      "story_ids": [
+        "MIN-26"
+      ],
+      "task_ids": [
+        "MIN-27",
+        "MIN-28"
+      ],
+      "estimated_hours": 80
+    },
+    {
+      "developer_name": "Sameer Kulkarni",
+      "story_ids": [
+        "MIN-30"
+      ],
+      "task_ids": [
+        "MIN-31",
+        "MIN-32",
+        "MIN-33"
+      ],
+      "estimated_hours": 80
+    },
+    {
+      "developer_name": "test user",
+      "story_ids": [
+        "MIN-34"
+      ],
+      "task_ids": [
+        "MIN-35",
+        "MIN-36",
+        "MIN-37"
+      ],
+      "estimated_hours": 50
+    }
+  ],
+  "risks_identified": [
+    "Dependency on DevOps team to set up Stripe webhook endpoints",
+    "Stripe subscription API quirks around prorated refunds",
+    "Design team hasn't finalized payment form styles"
+  ],
+  "dependencies": [
+    "DevOps team to set up Stripe webhook endpoints",
+    "Design team to finalize payment form styles"
+  ],
+  "notes": "Mid-sprint check-in on Wednesday to ensure Stripe webhook endpoints are set up"
+}

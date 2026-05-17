@@ -1,0 +1,31 @@
+{
+  "project_key": "MIN",
+  "id_mapping": {
+    "epic_002": "MIN-25",
+    "story_001": "MIN-26",
+    "task_001": "MIN-27",
+    "task_002": "MIN-28",
+    "task_003": "MIN-29",
+    "story_002": "MIN-30",
+    "task_004": "MIN-31",
+    "task_005": "MIN-32",
+    "task_006": "MIN-33",
+    "story_003": "MIN-34",
+    "task_007": "MIN-35",
+    "task_008": "MIN-36",
+    "task_009": "MIN-37",
+    "epic_001": "MIN-38",
+    "story_004": "MIN-39",
+    "task_010": "MIN-40",
+    "task_011": "MIN-41",
+    "task_012": "MIN-42",
+    "epic_004": "MIN-43",
+    "epic_003": "MIN-44",
+    "story_005": "MIN-45",
+    "task_013": "MIN-46",
+    "task_014": "MIN-47",
+    "task_015": "MIN-48"
+  },
+  "last_updated": "2026-05-18T00:11:39.525607",
+  "resume_point": null
+}

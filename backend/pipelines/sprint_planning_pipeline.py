@@ -28,6 +28,7 @@ from backend.agents.sprint_planning_extractor import (
     SprintPlanningResult
 )
 from backend.tools.jira_client import JiraManager
+from backend.tools.user_resolution import resolve_jira_assignee
 
 # Configure logging
 logging.basicConfig(
@@ -219,6 +220,7 @@ class SprintPlanningPipeline:
                     jira_result = self._simulate_jira_creation(sprint_plan)
                 else:
                     jira_result = self._create_sprint_in_jira(sprint_plan)
+                    self.persist_sprint_to_db(sprint_plan, jira_result)
                 
                 result.jira_result = jira_result
                 
@@ -555,7 +557,10 @@ class SprintPlanningPipeline:
                 start_date=start_date,
                 end_date=end_date
             )
-            
+            if not sprint_data.get('success'):
+                error_text = sprint_data.get('error', 'Failed to create sprint in Jira')
+                raise Exception(error_text)
+
             result['sprint_id'] = sprint_data.get('id')
             result['sprint_name'] = sprint_name
             result['sprint_key'] = sprint_data.get('key', sprint_name)
@@ -563,7 +568,7 @@ class SprintPlanningPipeline:
             print(f"  Sprint created: {result['sprint_id']}")
             
             # Step 2: Move stories to sprint
-            if sprint_plan.commitment.story_ids:
+            if result['sprint_id'] and sprint_plan.commitment.story_ids:
                 print(f"  Moving {len(sprint_plan.commitment.story_ids)} stories to sprint...")
                 
                 for story_id in sprint_plan.commitment.story_ids:
@@ -575,6 +580,20 @@ class SprintPlanningPipeline:
                         error_msg = f"Failed to move {story_id}: {str(e)}"
                         result['errors'].append(error_msg)
                         logger.error(error_msg)
+
+            # Step 2b: Start sprint so issues appear on the active sprint board
+            if result['sprint_id']:
+                start_result = self.jira.start_sprint(
+                    result['sprint_id'],
+                    name=sprint_name,
+                    goal=sprint_plan.sprint_goal,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                if not start_result.get('success'):
+                    error_msg = f"Failed to start sprint: {start_result.get('error')}"
+                    result['errors'].append(error_msg)
+                    logger.error(error_msg)
             
             # Step 3: Assign developers
             if sprint_plan.developer_assignments:
@@ -582,12 +601,13 @@ class SprintPlanningPipeline:
                 
                 for assignment in sprint_plan.developer_assignments:
                     dev_name = assignment.developer_name
+                    jira_assignee = resolve_jira_assignee(dev_name)
                     result['developers_assigned'] += 1
                     
                     # Assign stories
                     for story_id in assignment.story_ids:
                         try:
-                            self.jira.assign_issue(story_id, dev_name)
+                            self.jira.assign_issue(story_id, jira_assignee)
                             result['tasks_assigned'] += 1
                             print(f"    Assigned {story_id} to {dev_name}")
                         except Exception as e:
@@ -598,7 +618,7 @@ class SprintPlanningPipeline:
                     # Assign tasks
                     for task_id in assignment.task_ids:
                         try:
-                            self.jira.assign_issue(task_id, dev_name)
+                            self.jira.assign_issue(task_id, jira_assignee)
                             result['tasks_assigned'] += 1
                             print(f"    Assigned {task_id} to {dev_name}")
                         except Exception as e:
@@ -615,6 +635,87 @@ class SprintPlanningPipeline:
             raise
         
         return result
+
+    def persist_sprint_to_db(
+        self,
+        sprint_plan: SprintPlanningResult,
+        jira_result: Dict[str, Any],
+        created_by_user_id: Optional[int] = None,
+    ) -> None:
+        """Persist the approved sprint and its committed stories locally."""
+        from backend.db.connection import get_session
+        from backend.db.models import Sprint, SprintStory, Story
+
+        sprint_name = jira_result.get('sprint_name') or (
+            f"Sprint {sprint_plan.sprint_number}" if sprint_plan.sprint_number else "Sprint"
+        )
+        start_date_raw = sprint_plan.start_date or datetime.now().strftime('%Y-%m-%d')
+        end_date_raw = sprint_plan.end_date
+        if not end_date_raw:
+            start = datetime.strptime(start_date_raw, '%Y-%m-%d')
+            end_date_raw = (start + timedelta(weeks=sprint_plan.sprint_duration_weeks)).strftime('%Y-%m-%d')
+
+        start_date = datetime.strptime(start_date_raw, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_date_raw, '%Y-%m-%d').date()
+
+        with get_session() as session:
+            # Keep only one active sprint for standup context.
+            session.query(Sprint).filter(Sprint.status == 'active').update(
+                {Sprint.status: 'planned'},
+                synchronize_session=False,
+            )
+
+            sprint = session.query(Sprint).filter(Sprint.sprint_name == sprint_name).first()
+            if not sprint:
+                sprint = Sprint(
+                    sprint_number=sprint_plan.sprint_number,
+                    sprint_name=sprint_name,
+                    sprint_goal=sprint_plan.sprint_goal,
+                    start_date=start_date,
+                    end_date=end_date,
+                    duration_weeks=sprint_plan.sprint_duration_weeks,
+                    status='active',
+                    team_capacity_hours=sprint_plan.team_capacity.total_hours,
+                    team_size=sprint_plan.team_capacity.team_size,
+                    velocity_target=sprint_plan.commitment.story_points,
+                    created_by=created_by_user_id,
+                )
+                session.add(sprint)
+                session.flush()
+            else:
+                sprint.sprint_number = sprint_plan.sprint_number
+                sprint.sprint_goal = sprint_plan.sprint_goal
+                sprint.start_date = start_date
+                sprint.end_date = end_date
+                sprint.duration_weeks = sprint_plan.sprint_duration_weeks
+                sprint.status = 'active'
+                sprint.team_capacity_hours = sprint_plan.team_capacity.total_hours
+                sprint.team_size = sprint_plan.team_capacity.team_size
+                sprint.velocity_target = sprint_plan.commitment.story_points
+                if created_by_user_id:
+                    sprint.created_by = created_by_user_id
+
+            for story_key in sprint_plan.commitment.story_ids:
+                story = session.query(Story).filter(Story.jira_key == story_key).first()
+                if not story:
+                    logger.warning(f"Could not link story {story_key} to sprint; not found in DB")
+                    continue
+
+                existing = session.query(SprintStory).filter(
+                    SprintStory.sprint_id == sprint.sprint_id,
+                    SprintStory.story_id == story.id,
+                ).first()
+                if not existing:
+                    session.add(SprintStory(
+                        sprint_id=sprint.sprint_id,
+                        story_id=story.id,
+                        committed_by=created_by_user_id,
+                        story_points=sprint_plan.commitment.story_points,
+                        estimated_hours=sprint_plan.commitment.estimated_hours,
+                        status='committed',
+                    ))
+
+            session.commit()
     
     def _simulate_jira_creation(
         self,

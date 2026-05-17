@@ -974,6 +974,11 @@ async def execute_sprint_planning(approval: ApprovalRequest):
         
         # Create sprint in Jira
         jira_result = pipeline._create_sprint_in_jira(sprint_plan)
+        pipeline.persist_sprint_to_db(
+            sprint_plan,
+            jira_result,
+            created_by_user_id=approval.assigned_to,
+        )
         
         logger.info(f"Sprint creation complete:")
         logger.info(f"  Sprint: {jira_result.get('sprint_name')}")
@@ -1108,7 +1113,7 @@ async def execute_standup_update(approval: ApprovalRequest):
                     summary = action.get('summary', '')
                     
                     # Extract ticket key from summary (e.g., "SP-189")
-                    match = re.search(r'(SP-\d+)', summary)
+                    match = re.search(r'([A-Z][A-Z0-9]+-\d+)', summary)
                     if not match:
                         logger.warning(f"No ticket key found in action: {summary}")
                         continue
@@ -1144,7 +1149,7 @@ async def execute_standup_update(approval: ApprovalRequest):
                         db_updates += 1
                     
                     elif action_type == 'update_status':
-                        new_status = action.get('new_status', 'In Progress')
+                        new_status = action.get('status') or action.get('new_status') or 'In Progress'
                         if story:
                             story.jira_status = new_status
                             story.jira_synced_at = datetime.now(timezone.utc)

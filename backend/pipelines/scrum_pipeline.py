@@ -269,7 +269,7 @@ class ScrumPipeline:
                     logger.warning("No active sprint found")
                     return {"active_stories": [], "active_tasks": []}
                 
-                logger.info(f"Found active sprint: {active_sprint.name}")
+                logger.info(f"Found active sprint: {active_sprint.sprint_name}")
                 
                 # Get stories in active sprint through sprint_stories table
                 sprint_story_ids = session.query(SprintStory.story_id).filter(
@@ -310,7 +310,7 @@ class ScrumPipeline:
                         'title': task.title,
                         'description': task.description,
                         'story_id': task.story.jira_key if task.story else None,
-                        'assigned_to': task.assigned_to,
+                        'assigned_to': task.assignee_raw,
                         'status': task.jira_status
                     })
                 

@@ -106,6 +106,8 @@ class ScrumExtractorAgent:
                     "- If someone says 'I'll pick up X' or 'I'm working on X', that is "
                     "'update_status' with status 'In Progress'.\n"
                     "- If someone says 'assign X to Y' or 'Y can take X', that is 'assign_task'.\n"
+                    "- For add_comment actions, summary MUST contain the matched Jira ticket ID. "
+                    "If no ticket can be matched, do not emit an add_comment action.\n"
                     "- Only include optional fields when the speaker explicitly mentioned them.\n\n"
                     "Output format instructions:\n{format_instructions}"
                 ),

@@ -13,6 +13,7 @@ import logging
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from backend.tools.jira_client import JiraManager
+from backend.tools.user_resolution import resolve_jira_assignee
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ Summary:
         """Create a new Jira ticket."""
         summary = action.get('summary')
         description = action.get('description', '')
-        assignee = action.get('assignee')
+        assignee = resolve_jira_assignee(action.get('assignee'))
         
         result = self.jira.create_ticket(
             summary=summary,
@@ -188,7 +189,8 @@ Summary:
     def _assign_task(self, action: Dict) -> str:
         """Assign task to a user."""
         summary = action.get('summary')
-        assignee = action.get('assignee')
+        assignee_raw = action.get('assignee')
+        assignee = resolve_jira_assignee(assignee_raw)
         
         if not assignee:
             raise Exception("No assignee specified")
@@ -208,7 +210,7 @@ Summary:
         result = self.jira.assign_ticket(ticket_key, assignee)
         
         if result.get('success'):
-            return f"Assigned {ticket_key} to {assignee}"
+            return f"Assigned {ticket_key} to {assignee_raw or assignee}"
         else:
             raise Exception(result.get('error', 'Unknown error'))
 
@@ -219,6 +221,8 @@ Summary:
         
         if not comment:
             raise Exception("No comment text provided")
+        if not summary:
+            return "Skipped comment because no Jira ticket was identified"
         
         # Extract ticket ID from summary
         ticket_key = self._extract_ticket_key(summary)

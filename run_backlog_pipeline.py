@@ -31,8 +31,8 @@ def main():
     
     # Run pipeline with example transcripts
     result = pipeline.run(
-        pm_transcript_path="backend/data/pm_meetings/example_pm_transcript.txt",
-        grooming_transcript_path="backend/data/grooming_meetings/example_grooming_transcript.txt",
+        pm_transcript_path="backend/data/pm_meetings/test_names_pm_transcript.txt",
+        grooming_transcript_path="backend/data/grooming_meetings/test_names_grooming_transcript.txt",
         create_in_jira=True,  # Will create in Jira after approval
         dry_run=False
     )

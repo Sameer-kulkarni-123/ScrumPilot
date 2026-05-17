@@ -29,7 +29,7 @@ def main():
     print("\n" + "=" * 80 + "\n")
     
     # Use the REAL transcript with actual ticket IDs
-    transcript_path = "backend/data/scrum_meetings/test_standup_sprint24.txt"
+    transcript_path = "backend/data/scrum_meetings/test_names_test_standup_sprint24.txt"
     
     if not Path(transcript_path).exists():
         print(f"❌ Transcript not found: {transcript_path}")
