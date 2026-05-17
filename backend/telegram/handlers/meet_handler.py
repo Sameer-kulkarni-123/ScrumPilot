@@ -253,6 +253,59 @@ async def handle_transcript_input(update: Update, context: ContextTypes.DEFAULT_
             with open(transcript_file, 'w', encoding='utf-8') as f:
                 f.write(transcript)
 
+            if detected_type in ('daily_standup', 'sprint_planning'):
+                from backend.telegram.services.approval_service import approval_service
+
+                pipeline_type = 'standup' if detected_type == 'daily_standup' else 'sprint'
+                pm_user_id = approval_service.get_pm_user_id()
+                if not pm_user_id:
+                    raise Exception(
+                        "No PM user found for approval. "
+                        "Please ensure a product_owner user exists and has Telegram linked."
+                    )
+
+                requester_user_id = approval_service.get_requester_user_id(pm_user_id)
+                transcript_preview = transcript[:280].replace("`", "'").strip()
+                approval_data = {
+                    "pipeline_type": pipeline_type,
+                    "transcript_file": transcript_file,
+                    "detected_type": detected_type,
+                    "transcript_preview": transcript_preview,
+                    "summary": {
+                        "extraction_pending": True,
+                    },
+                }
+
+                approval_id = approval_service.create_project_selection_approval(
+                    request_data=approval_data,
+                    requested_by_user_id=requester_user_id,
+                    assigned_to_user_id=pm_user_id,
+                    priority='high',
+                )
+
+                pipeline_info = (
+                    "Pipeline: Scrum (Standup)\n"
+                    if pipeline_type == 'standup'
+                    else "Pipeline: Sprint Planning\n"
+                )
+                pipeline_info += (
+                    "Status: paused\n"
+                    "Step: project selection pending\n"
+                    f"Approval ID: #{approval_id}"
+                )
+
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=(
+                        f"*Project Selection Requested*\n\n"
+                        f"{pipeline_info}\n\n"
+                        "Check Telegram approvals and choose the Jira project.\n"
+                        "Extraction and Jira updates will run only after that selection."
+                    ),
+                    parse_mode="Markdown",
+                )
+                return
+
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=f"⏳ Running `{detected_type}` pipeline…",

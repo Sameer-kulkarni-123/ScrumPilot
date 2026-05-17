@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import logging
 from collections import deque
@@ -180,7 +181,7 @@ class JiraManager:
         # Removed the strict board check because Jira API often delays board creation
         # or requires a UI visit first. It is fine if boards is empty at validation time.
         if not boards:
-            logger.info(f"No Scrum board found for {effective_project_key}, but continuing.")
+            logger.debug(f"No Scrum board found for {effective_project_key}, but continuing.")
 
         project_name = effective_project_key
         try:
@@ -654,6 +655,7 @@ class JiraManager:
                     "key": i.key,
                     "summary": i.fields.summary,
                     "status": i.fields.status.name,
+                    "issue_type": getattr(i.fields.issuetype, "name", None),
                     "assignee": (
                         getattr(i.fields.assignee, "emailAddress", None)
                         or getattr(i.fields.assignee, "displayName", None)
@@ -705,6 +707,7 @@ class JiraManager:
         end_date: Optional[str] = None,
         board_id: Optional[int] = None,
         project_key: Optional[str] = None,
+        auto_start: bool = True,
     ) -> Dict:
         """
         Create a new sprint in Jira.
@@ -760,7 +763,58 @@ class JiraManager:
                 else:
                     board_id = boards[0]["id"]
                 logger.info(f"Using board ID: {board_id}")
-            
+
+            normalized_name = (name or "").strip()
+            existing_sprints = []
+            try:
+                existing_sprints.extend(self.client.sprints(board_id, state='future'))
+                existing_sprints.extend(self.client.sprints(board_id, state='active'))
+            except Exception as e:
+                logger.warning(f"Could not list existing sprints for board {board_id}: {e}")
+
+            existing_sprints.sort(key=lambda sprint: getattr(sprint, "id", 0), reverse=True)
+
+            for existing in existing_sprints:
+                if getattr(existing, "name", "").strip() == normalized_name:
+                    sprint_state = getattr(existing, "state", "future")
+                    if auto_start and start_date and end_date and sprint_state == "future":
+                        try:
+                            from datetime import datetime as _dt
+                            start_day = _dt.strptime(start_date, "%Y-%m-%d").date()
+                            today = _dt.now().date()
+                            if start_day <= today:
+                                update_payload = {
+                                    "id": existing.id,
+                                    "name": existing.name,
+                                    "goal": goal,
+                                    "startDate": f"{start_date}T00:00:00.000Z",
+                                    "endDate": f"{end_date}T00:00:00.000Z",
+                                    "state": "active",
+                                }
+                                update_res = self.client._session.put(
+                                    f"{self.url}/rest/agile/1.0/sprint/{existing.id}",
+                                    json=update_payload,
+                                )
+                                update_res.raise_for_status()
+                                sprint_state = "active"
+                                logger.info(f"Started existing sprint {existing.id} automatically")
+                        except Exception as start_error:
+                            logger.warning(
+                                f"Reused sprint {existing.id} but could not auto-start it: {start_error}"
+                            )
+                    logger.info(
+                        f"Reusing existing sprint '{normalized_name}' "
+                        f"(id={existing.id}, state={sprint_state}) on board {board_id}"
+                    )
+                    return {
+                        "success": True,
+                        "id": existing.id,
+                        "name": existing.name,
+                        "key": f"SPRINT-{existing.id}",
+                        "state": sprint_state,
+                        "message": f"Sprint '{name}' already exists and was reused."
+                    }
+             
             # Create sprint
             sprint = self.client.create_sprint(
                 name=name,
@@ -769,17 +823,80 @@ class JiraManager:
                 startDate=start_date,
                 endDate=end_date
             )
-            
+
+            sprint_state = getattr(sprint, "state", "future")
+            if auto_start and start_date and end_date:
+                try:
+                    from datetime import datetime as _dt
+                    start_day = _dt.strptime(start_date, "%Y-%m-%d").date()
+                    today = _dt.now().date()
+                    if start_day <= today and sprint_state == "future":
+                        update_payload = {
+                            "id": sprint.id,
+                            "name": sprint.name,
+                            "goal": goal,
+                            "startDate": f"{start_date}T00:00:00.000Z",
+                            "endDate": f"{end_date}T00:00:00.000Z",
+                            "state": "active",
+                        }
+                        update_res = self.client._session.put(
+                            f"{self.url}/rest/agile/1.0/sprint/{sprint.id}",
+                            json=update_payload,
+                        )
+                        update_res.raise_for_status()
+                        sprint_state = "active"
+                        logger.info(f"Started sprint {sprint.id} automatically")
+                except Exception as start_error:
+                    logger.warning(f"Created sprint {sprint.id} but could not auto-start it: {start_error}")
+             
             return {
                 "success": True,
                 "id": sprint.id,
                 "name": sprint.name,
                 "key": f"SPRINT-{sprint.id}",
+                "state": sprint_state,
                 "message": f"Sprint '{name}' created successfully."
             }
         
         except Exception as e:
             logger.error(f"Failed to create sprint: {e}")
+            return {"success": False, "error": str(e)}
+
+    def start_sprint(
+        self,
+        sprint_id: int,
+        name: str,
+        goal: str,
+        start_date: str,
+        end_date: str,
+    ) -> Dict:
+        """Start an existing future sprint so it becomes visible on the board."""
+        self._enforce_rate_limit()
+
+        try:
+            payload = {
+                "id": sprint_id,
+                "name": name,
+                "goal": goal,
+                "startDate": f"{start_date}T00:00:00.000Z",
+                "endDate": f"{end_date}T00:00:00.000Z",
+                "state": "active",
+            }
+            response = self.client._session.put(
+                f"{self.url}/rest/agile/1.0/sprint/{sprint_id}",
+                json=payload,
+            )
+            response.raise_for_status()
+            logger.info(f"Started sprint {sprint_id} ({name})")
+            return {
+                "success": True,
+                "id": sprint_id,
+                "name": name,
+                "state": "active",
+                "message": f"Sprint '{name}' started successfully.",
+            }
+        except Exception as e:
+            logger.error(f"Failed to start sprint {sprint_id}: {e}")
             return {"success": False, "error": str(e)}
 
     def move_issue_to_sprint(self, issue_key: str, sprint_id: int) -> Dict:
@@ -853,15 +970,76 @@ class JiraManager:
         self._enforce_rate_limit()
         
         try:
-            self.client.assign_issue(issue_key, assignee)
+            resolved = self._resolve_assignee_account_id(assignee)
+            if not resolved.get("success"):
+                return {"success": False, "error": resolved.get("error", "Could not resolve assignee")}
+
+            response = self.client._session.put(
+                f"{self.url}/rest/api/3/issue/{issue_key}/assignee",
+                json={"accountId": resolved["account_id"]},
+            )
+            response.raise_for_status()
             return {
                 "success": True,
-                "message": f"Issue {issue_key} assigned to {assignee}."
+                "message": f"Issue {issue_key} assigned to {resolved.get('display_name', assignee)}."
             }
         
         except Exception as e:
             logger.error(f"Failed to assign issue: {e}")
             return {"success": False, "error": str(e)}
+
+    def _resolve_assignee_account_id(self, assignee: str) -> Dict[str, Any]:
+        """Resolve an assignee name/email/accountId to a Jira Cloud accountId."""
+        raw = (assignee or "").strip()
+        if not raw:
+            return {"success": False, "error": "Assignee cannot be empty."}
+
+        # Allow direct accountId input (common Jira Cloud format).
+        if re.match(r"^\d+:[0-9a-fA-F-]{36}$", raw):
+            return {"success": True, "account_id": raw, "display_name": raw}
+
+        try:
+            users = self.client.search_users(query=raw, maxResults=20)
+        except Exception as e:
+            return {"success": False, "error": f"Failed to search Jira users for '{raw}': {e}"}
+
+        if not users:
+            return {"success": False, "error": f"No matching user found for: '{raw}'"}
+
+        query = raw.lower()
+        best_user = None
+        best_score = -1
+
+        for user in users:
+            account_id = getattr(user, "accountId", None)
+            display_name = (getattr(user, "displayName", "") or "").strip()
+            email = (getattr(user, "emailAddress", "") or "").strip()
+
+            if not account_id:
+                continue
+
+            display_norm = display_name.lower()
+            email_norm = email.lower()
+
+            score = 0
+            if display_norm == query or email_norm == query:
+                score = 3
+            elif display_norm.startswith(query) or email_norm.startswith(query):
+                score = 2
+            elif query in display_norm or query in email_norm:
+                score = 1
+
+            if score > best_score:
+                best_score = score
+                best_user = {
+                    "account_id": account_id,
+                    "display_name": display_name or email or raw,
+                }
+
+        if not best_user:
+            return {"success": False, "error": f"No matching user found for: '{raw}'"}
+
+        return {"success": True, **best_user}
 
     def bulk_assign_issues(self, assignments: List[Dict[str, Any]]) -> Dict:
         """

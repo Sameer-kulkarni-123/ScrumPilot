@@ -209,6 +209,49 @@ class ApprovalService:
                 )
 
             return approval_id
+
+    @staticmethod
+    def create_start_sprint_approval(
+        request_data: Dict[str, Any],
+        requested_by_user_id: int,
+        assigned_to_user_id: int,
+        priority: str = 'high'
+    ) -> int:
+        """Create approval request for explicitly starting a backlog sprint."""
+        with get_session() as session:
+            approval = ApprovalRequest(
+                request_type='start_sprint',
+                entity_type='sprint',
+                entity_id=0,
+                requested_by=requested_by_user_id,
+                assigned_to=assigned_to_user_id,
+                status='pending',
+                priority=priority,
+                request_data=request_data,
+                original_data=request_data,
+                created_at=datetime.now(timezone.utc),
+                expires_at=None
+            )
+
+            session.add(approval)
+            session.commit()
+            session.refresh(approval)
+
+            approval_id = approval.approval_id
+            logger.info(f"Created start sprint approval request #{approval_id}")
+
+            assigned_user = session.query(User).filter(
+                User.id == assigned_to_user_id
+            ).first()
+
+            if assigned_user and assigned_user.telegram_user_id:
+                ApprovalService._send_telegram_notification(
+                    telegram_user_id=assigned_user.telegram_user_id,
+                    telegram_chat_id=assigned_user.telegram_chat_id,
+                    approval_id=approval_id
+                )
+
+            return approval_id
     
     @staticmethod
     def _send_telegram_notification(

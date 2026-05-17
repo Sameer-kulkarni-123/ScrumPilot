@@ -616,6 +616,8 @@ async def execute_approval(approval: ApprovalRequest):
         return await execute_sprint_planning(approval)
     elif approval.request_type == 'standup_update':
         return await execute_standup_update(approval)
+    elif approval.request_type == 'start_sprint':
+        return await execute_start_sprint(approval)
     elif approval.request_type == 'project_selection':
         return await execute_project_selection(approval)
     elif approval.request_type == 'project_creation':
@@ -988,12 +990,12 @@ async def handle_project_key_input(update: Update, context: ContextTypes.DEFAULT
 
 
 async def complete_existing_project_selection(query, approval: ApprovalRequest, user: User, project_key: str):
-    """Validate an existing Scrum project, then resume the paused transcript run."""
+    """Validate an existing Jira project, then resume the paused transcript run."""
     import asyncio
     from telegram.error import BadRequest
-    
+
     try:
-        await query.edit_message_text(f"⏳ Validating Jira project '{project_key}'... This may take a moment.")
+        await query.edit_message_text(f"Validating Jira project '{project_key}'... This may take a moment.")
     except BadRequest as e:
         if "Message is not modified" not in str(e):
             raise
@@ -1003,17 +1005,27 @@ async def complete_existing_project_selection(query, approval: ApprovalRequest, 
         return JiraManager().validate_scrum_project(project_key)
 
     validation = await asyncio.to_thread(_validate)
+    pipeline_type = (approval.approved_data or approval.request_data or {}).get('pipeline_type')
     if not validation.get('valid'):
         problems = validation.get('problems', ['Project is not Scrum-compatible'])
-        try:
-            await query.edit_message_text(
-                "❌ Selected project is not compatible with ScrumPilot.\n\n"
-                + "\n".join(f"- {problem}" for problem in problems)
-            )
-        except BadRequest as e:
-            if "Message is not modified" not in str(e):
-                raise
-        return
+        blocking_problems = [
+            problem for problem in problems
+            if 'No Scrum board found' not in problem
+        ]
+        if blocking_problems:
+            try:
+                await query.edit_message_text(
+                    'Selected project is not compatible with ScrumPilot.\n\n'
+                    + '\n'.join(f'- {problem}' for problem in problems)
+                )
+            except BadRequest as e:
+                if 'Message is not modified' not in str(e):
+                    raise
+            return
+
+        logger.warning(
+            f"Project {project_key} selected for pipeline={pipeline_type} without confirmed Scrum board; continuing to execution for final validation."
+        )
 
     created_keys = await finalize_project_selection(
         approval_id=approval.approval_id,
@@ -1024,24 +1036,24 @@ async def complete_existing_project_selection(query, approval: ApprovalRequest, 
     )
 
     success_lines = [
-        f"✅ Approved by {user.display_name}",
-        "",
-        f"Using Jira Scrum project: {project_key}",
-        "",
-        "✅ Pipeline resumed successfully.",
+        f"Approved by {user.display_name}",
+        '',
+        f"Using Jira project: {project_key}",
+        '',
+        'Pipeline resumed successfully.',
     ]
     if created_keys:
-        success_lines.append("")
-        success_lines.append("Processed keys:")
+        success_lines.append('')
+        success_lines.append('Processed keys:')
         for key in created_keys[:10]:
-            success_lines.append(f"  • {key}")
+            success_lines.append(f'  - {key}')
         if len(created_keys) > 10:
-            success_lines.append(f"  • ... and {len(created_keys) - 10} more")
+            success_lines.append(f'  - ... and {len(created_keys) - 10} more')
 
     try:
-        await query.edit_message_text("\n".join(success_lines), parse_mode=None)
+        await query.edit_message_text('\n'.join(success_lines), parse_mode=None)
     except BadRequest as e:
-        if "Message is not modified" not in str(e):
+        if 'Message is not modified' not in str(e):
             raise
 
 
@@ -1549,36 +1561,47 @@ async def execute_sprint_planning(approval: ApprovalRequest):
     """
     from backend.pipelines.sprint_planning_pipeline import SprintPlanningPipeline
     import json
+    from datetime import datetime
     from pathlib import Path
     
     # Use approved_data (which may have been edited)
     data = approval.approved_data or approval.request_data
     selected_project_key = data.get('selected_project_key')
     
-    # Get the sprint plan file path
     sprint_plan_file = data.get('sprint_plan_file')
-    
-    if not sprint_plan_file:
-        raise Exception("No sprint plan file found in approval data")
-    
-    logger.info(f"Creating sprint in Jira from plan file: {sprint_plan_file}")
-    
-    # Load sprint plan
-    if not Path(sprint_plan_file).exists():
-        raise Exception(f"Sprint plan file not found: {sprint_plan_file}")
-    
-    with open(sprint_plan_file, 'r', encoding='utf-8') as f:
-        sprint_plan_data = json.load(f)
-    
-    # Use the pipeline's Jira creation method
+    transcript_file = data.get('transcript_file')
+
     pipeline = SprintPlanningPipeline(require_telegram_approval=False)
-    
+
     try:
         # Import the sprint planning result model
         from backend.agents.sprint_planning_extractor import SprintPlanningResult
-        
-        # Reconstruct the sprint plan object
-        sprint_plan = SprintPlanningResult(**sprint_plan_data)
+
+        if sprint_plan_file:
+            logger.info(f"Creating sprint in Jira from plan file: {sprint_plan_file}")
+            if not Path(sprint_plan_file).exists():
+                raise Exception(f"Sprint plan file not found: {sprint_plan_file}")
+
+            with open(sprint_plan_file, 'r', encoding='utf-8') as f:
+                sprint_plan_data = json.load(f)
+            sprint_plan = SprintPlanningResult(**sprint_plan_data)
+        else:
+            if not transcript_file or not Path(transcript_file).exists():
+                raise Exception("No sprint transcript file found in approval data")
+
+            logger.info(
+                f"Extracting sprint plan after project selection for project {selected_project_key} "
+                f"from transcript: {transcript_file}"
+            )
+            import asyncio
+            sprint_plan = await asyncio.to_thread(
+                pipeline._extract_sprint_plan,
+                transcript_file,
+                None,
+            )
+            date_str = datetime.now().strftime('%Y-%m-%d')
+            sprint_plan_file = f"backend/data/sprint_planning/{date_str}_sprint_plan.json"
+            pipeline.extractor.save_result(sprint_plan, sprint_plan_file)
         
         # Create sprint in Jira
         import asyncio
@@ -1594,8 +1617,18 @@ async def execute_sprint_planning(approval: ApprovalRequest):
         logger.info(f"  Sprint: {jira_result.get('sprint_name')}")
         logger.info(f"  Stories moved: {jira_result.get('stories_moved', 0)}")
         logger.info(f"  Tasks assigned: {jira_result.get('tasks_assigned', 0)}")
+        logger.info(f"  Tasks skipped: {jira_result.get('tasks_skipped', 0)}")
         logger.info(f"  Developers: {jira_result.get('developers_assigned', 0)}")
+        for skip_msg in jira_result.get('assignment_skips', []):
+            logger.info(f"  {skip_msg}")
         
+        start_approval_id = await create_start_sprint_followup_approval(
+            source_approval=approval,
+            jira_result=jira_result,
+            sprint_plan=sprint_plan,
+            selected_project_key=selected_project_key,
+        )
+
         # Collect created/updated Jira keys
         created_keys = []
         
@@ -1603,9 +1636,9 @@ async def execute_sprint_planning(approval: ApprovalRequest):
         if jira_result.get('sprint_key'):
             created_keys.append(jira_result['sprint_key'])
         
-        # Add story keys
-        for story_id in sprint_plan.commitment.story_ids:
-            created_keys.append(story_id)
+        # Add actually moved story keys (not raw extracted labels)
+        created_keys.extend(jira_result.get('moved_story_keys', []))
+        created_keys.append(f"START-APPROVAL:{start_approval_id}")
         
         if jira_result.get('errors'):
             # Some items failed but continue
@@ -1614,12 +1647,90 @@ async def execute_sprint_planning(approval: ApprovalRequest):
                 error_summary += f"\n• ... and {len(jira_result['errors']) - 3} more"
             logger.warning(f"Sprint creation completed with errors:\n{error_summary}")
         
-        logger.info(f"✅ Successfully created sprint with {len(created_keys)} items")
+        logger.info(
+            f"✅ Sprint created (id={jira_result.get('sprint_id')}, "
+            f"stories_moved={jira_result.get('stories_moved', 0)}, "
+            f"tasks_assigned={jira_result.get('tasks_assigned', 0)}, "
+            f"tasks_skipped={jira_result.get('tasks_skipped', 0)})"
+        )
         return created_keys
     
     except Exception as e:
         logger.error(f"Failed to create sprint: {e}", exc_info=True)
         raise Exception(f"Failed to create sprint: {str(e)}")
+
+
+async def create_start_sprint_followup_approval(
+    source_approval: ApprovalRequest,
+    jira_result: dict,
+    sprint_plan,
+    selected_project_key: str,
+) -> int:
+    """Create a follow-up PM action to start the backlog sprint later."""
+    import asyncio
+    from backend.telegram.services.approval_service import approval_service
+
+    start_request_data = {
+        'pipeline_type': 'sprint_start',
+        'selected_project_key': selected_project_key,
+        'sprint_id': jira_result.get('sprint_id'),
+        'sprint_name': jira_result.get('sprint_name'),
+        'sprint_key': jira_result.get('sprint_key'),
+        'sprint_goal': sprint_plan.sprint_goal,
+        'start_date': jira_result.get('start_date') or sprint_plan.start_date,
+        'end_date': jira_result.get('end_date') or sprint_plan.end_date,
+        'moved_story_keys': jira_result.get('moved_story_keys', []),
+        'sprint_plan_file': (source_approval.approved_data or source_approval.request_data).get('sprint_plan_file'),
+    }
+
+    requested_by_user_id = source_approval.requested_by or approval_service.get_requester_user_id(source_approval.assigned_to)
+    assigned_to_user_id = source_approval.assigned_to
+
+    return await asyncio.to_thread(
+        approval_service.create_start_sprint_approval,
+        start_request_data,
+        requested_by_user_id,
+        assigned_to_user_id,
+        'high',
+    )
+
+
+async def execute_start_sprint(approval: ApprovalRequest):
+    """Start a previously created backlog sprint so it appears on the board."""
+    from backend.tools.jira_client import JiraManager
+
+    data = approval.approved_data or approval.request_data
+    sprint_id = data.get('sprint_id')
+    sprint_name = data.get('sprint_name')
+    sprint_goal = data.get('sprint_goal')
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+
+    if not sprint_id:
+        raise Exception("No sprint_id found in start sprint approval")
+
+    jira = JiraManager()
+
+    import asyncio
+    start_result = await asyncio.to_thread(
+        jira.start_sprint,
+        sprint_id=sprint_id,
+        name=sprint_name,
+        goal=sprint_goal,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    if not start_result.get('success'):
+        raise Exception(f"Failed to start sprint: {start_result.get('error', 'Unknown error')}")
+
+    logger.info(f"Started sprint {sprint_name} ({sprint_id}) for project {data.get('selected_project_key')}")
+    created_keys = []
+    if sprint_name:
+        created_keys.append(sprint_name)
+    if data.get('selected_project_key'):
+        created_keys.append(f"PROJECT:{data['selected_project_key']}")
+    return created_keys
 
 
 
@@ -1644,21 +1755,43 @@ async def execute_standup_update(approval: ApprovalRequest):
     data = approval.approved_data or approval.request_data
     selected_project_key = data.get('selected_project_key')
     
-    # Get the actions file path
     actions_file = data.get('actions_file')
+    transcript_file = data.get('transcript_file')
     
-    if not actions_file:
-        # Try to get actions directly from data
-        actions = data.get('actions', [])
-        if not actions:
-            raise Exception("No actions found in approval data")
-    else:
-        # Load actions from file
+    if actions_file:
         if not Path(actions_file).exists():
             raise Exception(f"Actions file not found: {actions_file}")
         
         with open(actions_file, 'r', encoding='utf-8') as f:
             actions = json.load(f)
+    else:
+        actions = data.get('actions', [])
+        if not actions:
+            if not transcript_file or not Path(transcript_file).exists():
+                raise Exception("No standup transcript or actions found in approval data")
+
+            logger.info(
+                f"Extracting standup actions after project selection for project {selected_project_key} "
+                f"from transcript: {transcript_file}"
+            )
+            from backend.pipelines.scrum_pipeline import ScrumPipeline
+            import asyncio
+
+            def _extract_actions():
+                pipeline = ScrumPipeline(require_telegram_approval=False)
+                with open(transcript_file, 'r', encoding='utf-8') as f:
+                    transcript = f.read()
+                return pipeline.extractor.extract_actions(
+                    transcript,
+                    {"active_stories": [], "active_tasks": []},
+                )
+
+            actions = await asyncio.to_thread(_extract_actions)
+            date_str = datetime.now().strftime('%Y-%m-%d')
+            actions_file = f"backend/data/scrum_meetings/{date_str}_actions.json"
+            Path(actions_file).parent.mkdir(parents=True, exist_ok=True)
+            with open(actions_file, 'w', encoding='utf-8') as f:
+                json.dump(actions, f, indent=2, ensure_ascii=False)
     
     logger.info(f"Updating Jira tickets from {len(actions)} standup actions")
     

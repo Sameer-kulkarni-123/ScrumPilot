@@ -16,6 +16,7 @@ Phase: 7
 
 import os
 import json
+import re
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -272,7 +273,7 @@ class SprintPlanningPipeline:
         """Extract sprint plan from transcript."""
         
         # If no context provided, try to load from backlog
-        if not context:
+        if context is None:
             context = self._load_backlog_context()
         
         return self.extractor.extract_from_file(transcript_path, context)
@@ -527,9 +528,15 @@ class SprintPlanningPipeline:
             'sprint_id': None,
             'sprint_name': None,
             'sprint_key': None,
+            'start_date': None,
+            'end_date': None,
             'stories_moved': 0,
             'tasks_assigned': 0,
+            'tasks_skipped': 0,
             'developers_assigned': 0,
+            'moved_story_keys': [],
+            'assigned_issue_keys': [],
+            'assignment_skips': [],
             'errors': []
         }
         
@@ -549,6 +556,8 @@ class SprintPlanningPipeline:
                 start = datetime.strptime(start_date, '%Y-%m-%d')
                 end = start + timedelta(weeks=sprint_plan.sprint_duration_weeks)
                 end_date = end.strftime('%Y-%m-%d')
+            result['start_date'] = start_date
+            result['end_date'] = end_date
             
             # Create sprint using Jira API
             sprint_data = self.jira.create_sprint(
@@ -557,6 +566,7 @@ class SprintPlanningPipeline:
                 start_date=start_date,
                 end_date=end_date,
                 project_key=project_key,
+                auto_start=False,
             )
             
             if not sprint_data.get('success') or not sprint_data.get('id'):
@@ -575,46 +585,116 @@ class SprintPlanningPipeline:
             if sprint_plan.commitment.story_ids:
                 print(f"  Moving {len(sprint_plan.commitment.story_ids)} stories to sprint...")
                 
-                for story_id in sprint_plan.commitment.story_ids:
+                for story_ref in sprint_plan.commitment.story_ids:
                     try:
-                        self.jira.move_issue_to_sprint(story_id, result['sprint_id'])
-                        result['stories_moved'] += 1
-                        print(f"    Moved: {story_id}")
+                        issue_key = self._resolve_issue_key(story_ref, project_key=project_key)
+                        if not issue_key:
+                            error_msg = f"Failed to move '{story_ref}': could not resolve to Jira issue key"
+                            result['errors'].append(error_msg)
+                            logger.error(error_msg)
+                            continue
+
+                        move_result = self.jira.move_issue_to_sprint(issue_key, result['sprint_id'])
+                        if move_result.get('success'):
+                            result['stories_moved'] += 1
+                            result['moved_story_keys'].append(issue_key)
+                            print(f"    Moved: {issue_key}")
+                        else:
+                            error_msg = f"Failed to move {issue_key}: {move_result.get('error', 'Unknown error')}"
+                            result['errors'].append(error_msg)
+                            logger.error(error_msg)
                     except Exception as e:
-                        error_msg = f"Failed to move {story_id}: {str(e)}"
+                        error_msg = f"Failed to move {story_ref}: {str(e)}"
                         result['errors'].append(error_msg)
                         logger.error(error_msg)
             
             # Step 3: Assign developers
             if sprint_plan.developer_assignments:
                 print(f"  Assigning tasks to {len(sprint_plan.developer_assignments)} developers...")
+                unavailable_developers = set()
                 
                 for assignment in sprint_plan.developer_assignments:
                     dev_name = assignment.developer_name
                     result['developers_assigned'] += 1
                     
                     # Assign stories
-                    for story_id in assignment.story_ids:
+                    for story_ref in assignment.story_ids:
                         try:
-                            self.jira.assign_issue(story_id, dev_name)
-                            result['tasks_assigned'] += 1
-                            print(f"    Assigned {story_id} to {dev_name}")
+                            if dev_name in unavailable_developers:
+                                result['tasks_skipped'] += 1
+                                continue
+
+                            issue_key = self._resolve_issue_key(story_ref, project_key=project_key)
+                            if not issue_key:
+                                error_msg = f"Failed to assign '{story_ref}' to {dev_name}: could not resolve to Jira issue key"
+                                result['errors'].append(error_msg)
+                                logger.error(error_msg)
+                                continue
+
+                            assign_result = self.jira.assign_issue(issue_key, dev_name)
+                            if assign_result.get('success'):
+                                result['tasks_assigned'] += 1
+                                result['assigned_issue_keys'].append(issue_key)
+                                print(f"    Assigned {issue_key} to {dev_name}")
+                            else:
+                                assign_error = assign_result.get('error', 'Unknown error')
+                                if "No matching user found for:" in assign_error:
+                                    unavailable_developers.add(dev_name)
+                                    result['tasks_skipped'] += 1
+                                    skip_msg = f"Skipping assignments for {dev_name}: user not found in Jira"
+                                    if skip_msg not in result['assignment_skips']:
+                                        result['assignment_skips'].append(skip_msg)
+                                        logger.info(skip_msg)
+                                    continue
+
+                                error_msg = f"Failed to assign {issue_key} to {dev_name}: {assign_error}"
+                                result['errors'].append(error_msg)
+                                logger.error(error_msg)
                         except Exception as e:
-                            error_msg = f"Failed to assign {story_id} to {dev_name}: {str(e)}"
+                            error_msg = f"Failed to assign {story_ref} to {dev_name}: {str(e)}"
                             result['errors'].append(error_msg)
                             logger.error(error_msg)
                     
                     # Assign tasks
-                    for task_id in assignment.task_ids:
+                    for task_ref in assignment.task_ids:
                         try:
-                            self.jira.assign_issue(task_id, dev_name)
-                            result['tasks_assigned'] += 1
-                            print(f"    Assigned {task_id} to {dev_name}")
+                            if dev_name in unavailable_developers:
+                                result['tasks_skipped'] += 1
+                                continue
+
+                            issue_key = self._resolve_issue_key(task_ref, project_key=project_key)
+                            if not issue_key:
+                                error_msg = f"Failed to assign '{task_ref}' to {dev_name}: could not resolve to Jira issue key"
+                                result['errors'].append(error_msg)
+                                logger.error(error_msg)
+                                continue
+
+                            assign_result = self.jira.assign_issue(issue_key, dev_name)
+                            if assign_result.get('success'):
+                                result['tasks_assigned'] += 1
+                                result['assigned_issue_keys'].append(issue_key)
+                                print(f"    Assigned {issue_key} to {dev_name}")
+                            else:
+                                assign_error = assign_result.get('error', 'Unknown error')
+                                if "No matching user found for:" in assign_error:
+                                    unavailable_developers.add(dev_name)
+                                    result['tasks_skipped'] += 1
+                                    skip_msg = f"Skipping assignments for {dev_name}: user not found in Jira"
+                                    if skip_msg not in result['assignment_skips']:
+                                        result['assignment_skips'].append(skip_msg)
+                                        logger.info(skip_msg)
+                                    continue
+
+                                error_msg = f"Failed to assign {issue_key} to {dev_name}: {assign_error}"
+                                result['errors'].append(error_msg)
+                                logger.error(error_msg)
                         except Exception as e:
-                            error_msg = f"Failed to assign {task_id} to {dev_name}: {str(e)}"
+                            error_msg = f"Failed to assign {task_ref} to {dev_name}: {str(e)}"
                             result['errors'].append(error_msg)
                             logger.error(error_msg)
-            
+
+            result['sprint_state'] = sprint_data.get('state', 'future')
+            print(f"  Sprint ready in backlog: {result['sprint_id']}")
             print(f"  Sprint creation complete!")
             
         except Exception as e:
@@ -624,6 +704,46 @@ class SprintPlanningPipeline:
             raise
         
         return result
+
+    def _resolve_issue_key(self, issue_ref: str, project_key: Optional[str] = None) -> Optional[str]:
+        """
+        Resolve a natural-language story/task reference to a Jira issue key.
+
+        Accepts direct Jira keys (e.g., TEST-123). Otherwise searches by summary.
+        """
+        if not issue_ref:
+            return None
+
+        candidate = issue_ref.strip()
+        if re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", candidate):
+            return candidate
+
+        search_result = self.jira.search_tickets(
+            summary_query=candidate,
+            max_results=10,
+            project_key=project_key,
+        )
+        if not search_result.get('success'):
+            return None
+
+        issues = search_result.get('issues') or []
+        if not issues:
+            return None
+
+        candidate_lc = candidate.lower()
+
+        # Prefer exact summary match, then substring match, then first hit.
+        for issue in issues:
+            summary = (issue.get('summary') or '').strip().lower()
+            if summary == candidate_lc:
+                return issue.get('key')
+
+        for issue in issues:
+            summary = (issue.get('summary') or '').strip().lower()
+            if candidate_lc in summary or summary in candidate_lc:
+                return issue.get('key')
+
+        return issues[0].get('key')
     
     def _simulate_jira_creation(
         self,

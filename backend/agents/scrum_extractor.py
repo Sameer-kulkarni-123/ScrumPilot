@@ -136,7 +136,7 @@ Extract all scrum actions, mapping natural language to story/task IDs:"""),
             A list of action dicts (serialized from ScrumAction models).
         """
         # Load context from database if not provided
-        if not context:
+        if context is None:
             context = self._load_active_sprint_context()
         
         # Format context for LLM

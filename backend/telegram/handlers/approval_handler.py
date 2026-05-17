@@ -80,6 +80,8 @@ async def send_approval_message(update: Update, session, approval: ApprovalReque
         message = format_sprint_approval(approval, request_data)
     elif approval.request_type == 'standup_update':
         message = format_standup_approval(approval, request_data)
+    elif approval.request_type == 'start_sprint':
+        message = format_start_sprint_approval(approval, request_data)
     elif approval.request_type == 'project_selection':
         message = format_project_selection_approval(approval, request_data)
     elif approval.request_type == 'project_creation':
@@ -97,6 +99,15 @@ async def send_approval_message(update: Update, session, approval: ApprovalReque
             ],
             [
                 InlineKeyboardButton("Create New Scrum Project", callback_data=f"ps_new_{approval.approval_id}"),
+            ],
+            [
+                InlineKeyboardButton("Reject", callback_data=f"reject_{approval.approval_id}"),
+            ],
+        ]
+    elif approval.request_type == 'start_sprint':
+        keyboard = [
+            [
+                InlineKeyboardButton("Start Sprint", callback_data=f"approve_{approval.approval_id}"),
             ],
             [
                 InlineKeyboardButton("Reject", callback_data=f"reject_{approval.approval_id}"),
@@ -279,6 +290,36 @@ def format_generic_approval(approval: ApprovalRequest, data: dict) -> str:
     return message
 
 
+def format_start_sprint_approval(approval: ApprovalRequest, data: dict) -> str:
+    """Format explicit PM action to start a backlog sprint."""
+    sprint_name = data.get('sprint_name', 'Unknown Sprint')
+    project_key = data.get('selected_project_key', 'N/A')
+    sprint_goal = data.get('sprint_goal', 'No goal specified')
+    moved_story_keys = data.get('moved_story_keys', [])
+    start_date = data.get('start_date', 'N/A')
+    end_date = data.get('end_date', 'N/A')
+
+    message = f"🏃 *Start Sprint*\n\n"
+    message += f"*Request ID*: #{approval.approval_id}\n"
+    message += f"*Project*: `{project_key}`\n"
+    message += f"*Sprint*: {sprint_name}\n"
+    message += f"*Goal*: {sprint_goal}\n"
+    message += f"*Dates*: {start_date} → {end_date}\n"
+    message += f"*Stories in Backlog Sprint*: {len(moved_story_keys)}\n"
+
+    if moved_story_keys:
+        preview = ", ".join(moved_story_keys[:5])
+        message += f"*Issue Preview*: {preview}\n"
+        if len(moved_story_keys) > 5:
+            message += f"... and {len(moved_story_keys) - 5} more\n"
+
+    message += (
+        "\nThe sprint has been created in Jira Backlog and issues were added to it.\n"
+        "Press *Start Sprint* when you want it to become active on the Board."
+    )
+    return message
+
+
 def format_project_selection_approval(approval: ApprovalRequest, data: dict) -> str:
     """Format PM project selection message for a paused transcript run."""
     pipeline_type = data.get('pipeline_type', 'unknown')
@@ -303,17 +344,31 @@ def format_project_selection_approval(approval: ApprovalRequest, data: dict) -> 
             f"- Tasks: {summary.get('total_tasks', 0)}\n\n"
         )
     elif pipeline_type == 'sprint':
-        message += (
-            f"*Transcript Summary*:\n"
-            f"- Sprint Goal: {data.get('sprint_goal', 'N/A')}\n"
-            f"- Stories: {summary.get('total_stories', 0)}\n"
-            f"- Developers: {summary.get('total_developers', 0)}\n\n"
-        )
+        if summary.get('extraction_pending'):
+            message += (
+                f"*Transcript Summary*:\n"
+                f"- Extraction: pending project selection\n"
+                f"- Preview: {data.get('transcript_preview', 'N/A')[:140]}\n\n"
+            )
+        else:
+            message += (
+                f"*Transcript Summary*:\n"
+                f"- Sprint Goal: {data.get('sprint_goal', 'N/A')}\n"
+                f"- Stories: {summary.get('total_stories', 0)}\n"
+                f"- Developers: {summary.get('total_developers', 0)}\n\n"
+            )
     elif pipeline_type == 'standup':
-        message += (
-            f"*Transcript Summary*:\n"
-            f"- Actions: {summary.get('total_actions', 0)}\n\n"
-        )
+        if summary.get('extraction_pending'):
+            message += (
+                f"*Transcript Summary*:\n"
+                f"- Extraction: pending project selection\n"
+                f"- Preview: {data.get('transcript_preview', 'N/A')[:140]}\n\n"
+            )
+        else:
+            message += (
+                f"*Transcript Summary*:\n"
+                f"- Actions: {summary.get('total_actions', 0)}\n\n"
+            )
 
     message += (
         "Choose the Jira Scrum project for this transcript:\n"
@@ -440,6 +495,8 @@ async def send_approval_notification(telegram_user_id: int, telegram_chat_id: in
             message = format_sprint_approval(approval, request_data)
         elif approval.request_type == 'standup_update':
             message = format_standup_approval(approval, request_data)
+        elif approval.request_type == 'start_sprint':
+            message = format_start_sprint_approval(approval, request_data)
         elif approval.request_type == 'project_selection':
             message = format_project_selection_approval(approval, request_data)
         elif approval.request_type == 'project_creation':
@@ -457,6 +514,15 @@ async def send_approval_notification(telegram_user_id: int, telegram_chat_id: in
                 ],
                 [
                     InlineKeyboardButton("Create New Scrum Project", callback_data=f"ps_new_{approval.approval_id}"),
+                ],
+                [
+                    InlineKeyboardButton("Reject", callback_data=f"reject_{approval.approval_id}"),
+                ],
+            ]
+        elif approval.request_type == 'start_sprint':
+            keyboard = [
+                [
+                    InlineKeyboardButton("Start Sprint", callback_data=f"approve_{approval.approval_id}"),
                 ],
                 [
                     InlineKeyboardButton("Reject", callback_data=f"reject_{approval.approval_id}"),

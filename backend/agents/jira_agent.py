@@ -151,7 +151,11 @@ Summary:
         
         if not ticket_key:
             # Search for ticket by summary
-            search_result = self.jira.search_tickets(summary_query=summary, max_results=1)
+            search_result = self.jira.search_tickets(
+                summary_query=summary,
+                max_results=1,
+                project_key=self.default_project_key,
+            )
             if search_result.get('success') and search_result.get('issues'):
                 ticket_key = search_result['issues'][0]['key']
             else:
@@ -175,7 +179,11 @@ Summary:
         
         if not ticket_key:
             # Search for ticket by summary
-            search_result = self.jira.search_tickets(summary_query=summary, max_results=1)
+            search_result = self.jira.search_tickets(
+                summary_query=summary,
+                max_results=1,
+                project_key=self.default_project_key,
+            )
             if search_result.get('success') and search_result.get('issues'):
                 ticket_key = search_result['issues'][0]['key']
             else:
@@ -202,7 +210,11 @@ Summary:
         
         if not ticket_key:
             # Search for ticket by summary
-            search_result = self.jira.search_tickets(summary_query=summary, max_results=1)
+            search_result = self.jira.search_tickets(
+                summary_query=summary,
+                max_results=1,
+                project_key=self.default_project_key,
+            )
             if search_result.get('success') and search_result.get('issues'):
                 ticket_key = search_result['issues'][0]['key']
             else:
@@ -229,7 +241,11 @@ Summary:
         
         if not ticket_key:
             # Search for ticket by summary
-            search_result = self.jira.search_tickets(summary_query=summary, max_results=1)
+            search_result = self.jira.search_tickets(
+                summary_query=summary,
+                max_results=1,
+                project_key=self.default_project_key,
+            )
             if search_result.get('success') and search_result.get('issues'):
                 ticket_key = search_result['issues'][0]['key']
             else:

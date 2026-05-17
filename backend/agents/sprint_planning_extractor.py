@@ -286,10 +286,14 @@ Extract the sprint planning data, mapping natural language to story/task IDs:"""
         """
         logger.info("Starting sprint planning extraction")
         
-        # Load context from database if not provided
-        if not context:
-            logger.info("No context provided, loading from database")
-            context = self._load_context_from_database()
+        # Keep sprint planning transcript-first by default. Context is optional
+        # and should be provided explicitly when a caller wants guided mapping.
+        if context is None:
+            logger.info("No sprint planning context provided; proceeding with transcript-only extraction")
+            context = {
+                'available_stories': [],
+                'available_tasks': [],
+            }
         
         # Format context for LLM
         context_str = self._format_context(context)
