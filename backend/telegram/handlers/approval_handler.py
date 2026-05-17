@@ -80,6 +80,8 @@ async def send_approval_message(update: Update, session, approval: ApprovalReque
         message = format_sprint_approval(approval, request_data)
     elif approval.request_type == 'standup_update':
         message = format_standup_approval(approval, request_data)
+    elif approval.request_type == 'project_selection':
+        message = format_project_selection_approval(approval, request_data)
     elif approval.request_type == 'project_creation':
         message = format_project_creation_approval(approval, request_data)
     elif approval.request_type == 'routing_classification':
@@ -87,8 +89,20 @@ async def send_approval_message(update: Update, session, approval: ApprovalReque
     else:
         message = format_generic_approval(approval, request_data)
     
-    # Build keyboard — project_creation gets an extra "Edit Key" button
-    if approval.request_type == 'project_creation':
+    # Build keyboard — project_selection and project_creation have custom actions
+    if approval.request_type == 'project_selection':
+        keyboard = [
+            [
+                InlineKeyboardButton("Use Existing Scrum Project", callback_data=f"ps_existing_{approval.approval_id}"),
+            ],
+            [
+                InlineKeyboardButton("Create New Scrum Project", callback_data=f"ps_new_{approval.approval_id}"),
+            ],
+            [
+                InlineKeyboardButton("Reject", callback_data=f"reject_{approval.approval_id}"),
+            ],
+        ]
+    elif approval.request_type == 'project_creation':
         keyboard = [
             [
                 InlineKeyboardButton("✅ Approve", callback_data=f"approve_{approval.approval_id}"),
@@ -265,6 +279,50 @@ def format_generic_approval(approval: ApprovalRequest, data: dict) -> str:
     return message
 
 
+def format_project_selection_approval(approval: ApprovalRequest, data: dict) -> str:
+    """Format PM project selection message for a paused transcript run."""
+    pipeline_type = data.get('pipeline_type', 'unknown')
+    summary = data.get('summary', {})
+    pipeline_label = {
+        'backlog': 'Backlog',
+        'sprint': 'Sprint Planning',
+        'standup': 'Standup',
+    }.get(pipeline_type, pipeline_type.title())
+
+    message = f"📁 *Project Selection Required*\n\n"
+    message += f"*Request ID*: #{approval.approval_id}\n"
+    message += f"*Pipeline*: {pipeline_label}\n"
+    message += f"*Priority*: {approval.priority.upper()}\n"
+    message += f"*Created*: {approval.created_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+
+    if pipeline_type == 'backlog':
+        message += (
+            f"*Transcript Summary*:\n"
+            f"- Epics: {summary.get('total_epics', 0)}\n"
+            f"- Stories: {summary.get('total_stories', 0)}\n"
+            f"- Tasks: {summary.get('total_tasks', 0)}\n\n"
+        )
+    elif pipeline_type == 'sprint':
+        message += (
+            f"*Transcript Summary*:\n"
+            f"- Sprint Goal: {data.get('sprint_goal', 'N/A')}\n"
+            f"- Stories: {summary.get('total_stories', 0)}\n"
+            f"- Developers: {summary.get('total_developers', 0)}\n\n"
+        )
+    elif pipeline_type == 'standup':
+        message += (
+            f"*Transcript Summary*:\n"
+            f"- Actions: {summary.get('total_actions', 0)}\n\n"
+        )
+
+    message += (
+        "Choose the Jira Scrum project for this transcript:\n"
+        "- Use an existing Scrum project\n"
+        "- Create a new Scrum project"
+    )
+    return message
+
+
 def format_project_creation_approval(approval: ApprovalRequest, data: dict) -> str:
     """Format new Jira project creation approval message."""
     suggested_key = data.get('suggested_key', '???')
@@ -382,6 +440,8 @@ async def send_approval_notification(telegram_user_id: int, telegram_chat_id: in
             message = format_sprint_approval(approval, request_data)
         elif approval.request_type == 'standup_update':
             message = format_standup_approval(approval, request_data)
+        elif approval.request_type == 'project_selection':
+            message = format_project_selection_approval(approval, request_data)
         elif approval.request_type == 'project_creation':
             message = format_project_creation_approval(approval, request_data)
         elif approval.request_type == 'routing_classification':
@@ -390,7 +450,19 @@ async def send_approval_notification(telegram_user_id: int, telegram_chat_id: in
             message = format_generic_approval(approval, request_data)
         
         # Create inline keyboard
-        if approval.request_type == 'project_creation':
+        if approval.request_type == 'project_selection':
+            keyboard = [
+                [
+                    InlineKeyboardButton("Use Existing Scrum Project", callback_data=f"ps_existing_{approval.approval_id}"),
+                ],
+                [
+                    InlineKeyboardButton("Create New Scrum Project", callback_data=f"ps_new_{approval.approval_id}"),
+                ],
+                [
+                    InlineKeyboardButton("Reject", callback_data=f"reject_{approval.approval_id}"),
+                ],
+            ]
+        elif approval.request_type == 'project_creation':
             keyboard = [
                 [
                     InlineKeyboardButton("✅ Approve", callback_data=f"approve_{approval.approval_id}"),

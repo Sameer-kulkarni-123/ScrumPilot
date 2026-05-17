@@ -1,61 +1,7 @@
 {
-  "default_project_key": "SP",
-  "default_component": "General",
+  "default_project_key": "PROJ",
   "triage_project_key": "TRIAGE",
-  "triage_project_name": "ScrumPilot Triage",
-  "triage_component": "Triage",
-  "projects": [
-    {
-      "key": "SP",
-      "name": "ScrumPilot Core",
-      "keywords": [
-        "scrum", "sprint", "backlog", "core", "platform",
-        "authentication", "auth", "login", "oauth", "signup", "password",
-        "admin", "dashboard", "analytics", "monitoring", "management",
-        "email", "notification", "sendgrid", "transactional", "template",
-        "user", "account", "profile", "session", "token"
-      ]
-    },
-    {
-      "key": "BACKEND",
-      "name": "Backend Services",
-      "keywords": [
-        "payment", "gateway", "stripe", "subscription", "billing", "webhook",
-        "payment gateway", "api integration", "backend service"
-      ]
-    },
-    {
-      "key": "MOBILE",
-      "name": "Mobile App",
-      "keywords": ["mobile", "android", "ios", "react native", "flutter", "native app"]
-    }
-  ],
-  "teams": [
-    {
-      "name": "backend",
-      "component": "Backend",
-      "keywords": [
-        "backend", "api", "database", "server", "service", "migration",
-        "endpoint", "integration", "stripe", "webhook", "oauth", "token",
-        "sendgrid", "ses", "smtp", "queue", "worker", "cron"
-      ]
-    },
-    {
-      "name": "frontend",
-      "component": "Frontend",
-      "keywords": [
-        "frontend", "ui", "ux", "react", "css", "page", "component",
-        "form", "dashboard", "chart", "table", "modal", "login page",
-        "signup form", "admin ui", "analytics dashboard", "email template"
-      ]
-    },
-    {
-      "name": "devops",
-      "component": "DevOps",
-      "keywords": [
-        "devops", "infra", "kubernetes", "docker", "deployment", "ci/cd",
-        "pipeline", "monitoring", "logging", "alerting", "health check"
-      ]
-    }
-  ]
+  "triage_project_name": "Triage",
+  "projects": [],
+  "teams": []
 }

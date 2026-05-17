@@ -329,7 +329,7 @@ class ScrumPipeline:
         extraction_file: str
     ) -> int:
         """
-        Create Telegram approval request for standup actions.
+        Create Telegram project selection request for standup actions.
         
         Args:
             actions: List of extracted actions
@@ -340,7 +340,7 @@ class ScrumPipeline:
         """
         from backend.telegram.services.approval_service import approval_service
         
-        logger.info("Creating Telegram approval request for standup actions")
+        logger.info("Creating project selection approval for standup actions")
         
         # Count action types
         action_counts = {}
@@ -360,11 +360,12 @@ class ScrumPipeline:
         
         logger.info(f"Assigning approval to Scrum Master user ID: {sm_user_id}")
         
-        # Get system/bot user (requester)
-        system_user_id = 1  # Bot user ID
+        # Get system/bot user (requester). Fall back to the approver if no
+        # dedicated bot/system user exists yet in the users table.
+        system_user_id = approval_service.get_requester_user_id(sm_user_id)
         
-        # Create approval request with standup data
         approval_data = {
+            'pipeline_type': 'standup',
             'actions_file': extraction_file,
             'actions': actions,
             'summary': {
@@ -372,10 +373,9 @@ class ScrumPipeline:
                 'action_counts': action_counts
             }
         }
-        
-        # Create standup approval (we'll add this method to approval_service)
-        approval_id = self._create_standup_approval(
-            standup_data=approval_data,
+
+        approval_id = approval_service.create_project_selection_approval(
+            request_data=approval_data,
             requested_by_user_id=system_user_id,
             assigned_to_user_id=sm_user_id,
             priority='normal'
@@ -397,90 +397,6 @@ class ScrumPipeline:
             print(f"  ... and {len(actions) - 3} more")
         
         return approval_id
-    
-    def _create_standup_approval(
-        self,
-        standup_data: Dict[str, Any],
-        requested_by_user_id: int,
-        assigned_to_user_id: int,
-        priority: str = 'normal'
-    ) -> int:
-        """Create standup approval request."""
-        from backend.db.connection import get_session
-        from backend.db.models import ApprovalRequest
-        from datetime import timezone, timedelta
-        
-        with get_session() as session:
-            approval = ApprovalRequest(
-                request_type='standup_update',
-                entity_type='task',
-                entity_id=0,
-                requested_by=requested_by_user_id,
-                assigned_to=assigned_to_user_id,
-                status='pending',
-                priority=priority,
-                request_data=standup_data,
-                original_data=standup_data,
-                created_at=datetime.now(timezone.utc),
-                expires_at=datetime.now(timezone.utc) + timedelta(hours=24)
-            )
-            
-            session.add(approval)
-            session.commit()
-            session.refresh(approval)
-            
-            approval_id = approval.approval_id
-            
-            logger.info(f"Created standup approval request #{approval_id}")
-            
-            # Send Telegram notification
-            from backend.db.models import User
-            assigned_user = session.query(User).filter(
-                User.id == assigned_to_user_id
-            ).first()
-            
-            if assigned_user and assigned_user.telegram_user_id:
-                self._send_telegram_notification(
-                    telegram_user_id=assigned_user.telegram_user_id,
-                    telegram_chat_id=assigned_user.telegram_chat_id,
-                    approval_id=approval_id
-                )
-            
-            return approval_id
-    
-    def _send_telegram_notification(
-        self,
-        telegram_user_id: int,
-        telegram_chat_id: int,
-        approval_id: int
-    ):
-        """Send Telegram notification for approval request."""
-        import asyncio
-        from backend.telegram.handlers.approval_handler import send_approval_notification
-        
-        try:
-            # Check if there's already a running event loop
-            try:
-                loop = asyncio.get_running_loop()
-                # We're inside an async context, create a task
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run,
-                        send_approval_notification(telegram_user_id, telegram_chat_id, approval_id)
-                    )
-                    future.result(timeout=10)  # Wait up to 10 seconds
-                logger.info(f"Sent Telegram notification for approval #{approval_id}")
-            except RuntimeError:
-                # No running loop, we can use asyncio.run()
-                asyncio.run(
-                    send_approval_notification(telegram_user_id, telegram_chat_id, approval_id)
-                )
-                logger.info(f"Sent Telegram notification for approval #{approval_id}")
-        except Exception as e:
-            logger.error(f"Failed to send Telegram notification: {e}")
-            # Don't fail the pipeline if notification fails
-            logger.warning("Pipeline will continue, but manual notification may be needed")
     
     def _update_jira_tickets(self, actions: List[Dict]) -> str:
         """Update Jira tickets based on actions."""

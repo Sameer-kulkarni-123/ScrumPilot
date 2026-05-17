@@ -51,6 +51,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("❌ Invalid edit request")
                 return
     
+    if callback_data.startswith('ps_'):
+        await handle_project_selection_callback(update, context, callback_data)
+        return
+
     # Parse standard callback data
     parts = callback_data.split('_', 1)
     if len(parts) != 2:
@@ -181,18 +185,19 @@ async def handle_approve(query, session, approval: ApprovalRequest, user: User):
 async def handle_reject(query, session, approval: ApprovalRequest, user: User, context: ContextTypes.DEFAULT_TYPE):
     """
     Handle rejection action.
-    
-    Asks for rejection reason.
+
+    Asks for rejection reason via follow-up message, then sets conversation
+    state so the next PM message goes to handle_rejection_reason.
     """
     logger.info(f"User {user.display_name} rejected request #{approval.approval_id}")
-    
+
     # Ask for rejection reason
     await query.edit_message_text(
         f"❌ *Rejecting Approval #{approval.approval_id}*\n\n"
-        f"Please send the rejection reason:",
+        f"Please send the rejection reason as your next message:",
         parse_mode='Markdown'
     )
-    
+
     # Set conversation state
     context.user_data['awaiting_rejection_reason'] = approval.approval_id
 
@@ -200,38 +205,41 @@ async def handle_reject(query, session, approval: ApprovalRequest, user: User, c
 async def handle_rejection_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handle rejection reason input.
-    
+
     Called from message_handler when awaiting_rejection_reason is set.
+
+    project_creation approvals → Option A: epics permanently dropped.
+    All other approval types   → standard cancellation message.
     """
     approval_id = context.user_data.get('awaiting_rejection_reason')
     if not approval_id:
         return
-    
+
     reason = update.message.text.strip()
     user = update.effective_user
-    
+
     with get_session() as session:
         db_user = session.query(User).filter(
             User.telegram_user_id == user.id
         ).first()
-        
+
         if not db_user:
             await update.message.reply_text("❌ User not found")
             return
-        
+
         approval = session.query(ApprovalRequest).filter(
             ApprovalRequest.approval_id == approval_id
         ).first()
-        
+
         if not approval:
             await update.message.reply_text("❌ Approval not found")
             return
-        
+
         # Update approval status
         approval.status = 'rejected'
         approval.reviewed_at = datetime.now(timezone.utc)
         approval.rejection_reason = reason
-        
+
         # Log in approval history
         crud.add_approval_history(
             session=session,
@@ -240,16 +248,39 @@ async def handle_rejection_reason(update: Update, context: ContextTypes.DEFAULT_
             performed_by=db_user.id,
             comment=reason
         )
-        
+
         session.commit()
-        
-        await update.message.reply_text(
-            f"❌ *Approval #{approval_id} Rejected*\n\n"
-            f"Reason: {reason}\n\n"
-            f"The request has been cancelled.",
-            parse_mode='Markdown'
-        )
-        
+
+        # ── Option A: Drop epics when project creation is rejected ──────────
+        # Epics that needed the rejected project are permanently dropped.
+        # No fallback routing — re-run the pipeline to recover.
+        if approval.request_type == 'project_creation':
+            data = approval.request_data or {}
+            project_key = data.get('suggested_key', '???')
+            items_count = data.get('items_count', 0)
+            sample = data.get('sample_summaries', [])
+            logger.warning(
+                f"PM rejected project_creation approval #{approval_id} for "
+                f"project '{project_key}'. {items_count} epic(s) DROPPED (Option A). "
+                f"Reason: {reason}"
+            )
+            dropped_list = "\n".join(f"  \u2022 {s}" for s in sample[:5])
+            more = f"\n  ...and {items_count - 5} more" if items_count > 5 else ""
+            await update.message.reply_text(
+                f"\u274c *Project '{project_key}' Rejected*\n\n"
+                f"Reason: {reason}\n\n"
+                f"\u26a0\ufe0f *{items_count} epic(s) dropped* \u2014 will NOT be created in Jira.\n"
+                f"Re-run the pipeline to reconsider.\n\n"
+                f"Dropped epics:\n{dropped_list}{more}",
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                f"\u274c *Approval #{approval_id} Rejected*\n\n"
+                f"Reason: {reason}\n\nThe request has been cancelled.",
+                parse_mode='Markdown'
+            )
+
         context.user_data['awaiting_rejection_reason'] = None
 
 
@@ -540,6 +571,8 @@ async def execute_approval(approval: ApprovalRequest):
         return await execute_sprint_planning(approval)
     elif approval.request_type == 'standup_update':
         return await execute_standup_update(approval)
+    elif approval.request_type == 'project_selection':
+        return await execute_project_selection(approval)
     elif approval.request_type == 'project_creation':
         return await execute_project_creation(approval)
     elif approval.request_type == 'routing_classification':
@@ -592,7 +625,9 @@ async def execute_project_creation(approval: ApprovalRequest) -> list:
     from backend.services.routing_service import register_project
 
     data = approval.approved_data or approval.request_data or {}
-    project_key = data.get('suggested_key', '').strip().upper()
+    # Strip spaces and non-alphanumeric chars — Jira keys must be UPPERCASE letters/digits only
+    raw_key = data.get('suggested_key', '')
+    project_key = re.sub(r'[^A-Z0-9]', '', raw_key.strip().upper())
     project_name = data.get('suggested_name', project_key)
     routing = data.get('routing_decision', {})
     keywords = []
@@ -600,47 +635,25 @@ async def execute_project_creation(approval: ApprovalRequest) -> list:
     if not project_key:
         raise Exception("No project key found in approval data")
 
-    # Validate key format
+    # Validate key format (enforced after sanitization)
     if not re.match(r'^[A-Z][A-Z0-9]{1,9}$', project_key):
         raise Exception(
             f"Invalid project key '{project_key}'. "
             "Must be 2–10 uppercase letters/digits starting with a letter."
         )
 
-    jira_url = os.environ['JIRA_URL'].rstrip('/')
-    auth = (os.environ['JIRA_EMAIL'], os.environ['JIRA_API_TOKEN'])
-    headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
-
-    # Resolve account ID for project lead
-    me = _req.get(f'{jira_url}/rest/api/3/myself', auth=auth, headers=headers, timeout=15)
-    me.raise_for_status()
-    account_id = me.json()['accountId']
-
-    # Check if project already exists in Jira (idempotent)
-    existing = _req.get(
-        f'{jira_url}/rest/api/3/project/{project_key}',
-        auth=auth, headers=headers, timeout=15
-    )
-    if existing.status_code == 200:
-        logger.info(f"Jira project '{project_key}' already exists — skipping creation")
-        created_key = existing.json().get('key', project_key)
-    else:
-        payload = {
-            'key': project_key,
-            'name': project_name,
-            'projectTypeKey': 'software',
-            'leadAccountId': account_id,
-        }
-        resp = _req.post(
-            f'{jira_url}/rest/api/3/project',
-            json=payload, auth=auth, headers=headers, timeout=30
-        )
-        if resp.status_code not in (200, 201):
-            raise Exception(
-                f"Jira project creation failed (HTTP {resp.status_code}): {resp.text[:300]}"
-            )
-        created_key = resp.json().get('key', project_key)
-        logger.info(f"Jira project '{created_key}' created successfully")
+    # Use the central JiraManager which enforces the Scrum template
+    from backend.tools.jira_client import JiraManager
+    try:
+        jira = JiraManager()
+        # Create project (this handles the Scrum template and idempotency internally)
+        result = jira.create_project(project_key, project_name)
+        if not result.get("success"):
+            raise Exception(result.get("error", "Unknown error"))
+        created_key = result.get("key", project_key)
+        logger.info(f"Jira project '{created_key}' created/verified successfully via JiraManager")
+    except Exception as e:
+        raise Exception(f"Jira project creation failed: {str(e)}")
 
     # Register in local DB registry so future preflight checks pass
     with get_session() as session:
@@ -705,6 +718,316 @@ async def handle_editkey_input(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
+async def handle_project_selection_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    callback_data: str,
+):
+    """Handle custom project selection callbacks."""
+    query = update.callback_query
+    user = update.effective_user
+    parts = callback_data.split('_')
+
+    if len(parts) < 3:
+        await query.edit_message_text("âŒ Invalid project selection action")
+        return
+
+    action = parts[1]
+    try:
+        approval_id = int(parts[2])
+    except ValueError:
+        await query.edit_message_text("âŒ Invalid approval ID")
+        return
+
+    with get_session() as session:
+        db_user = session.query(User).filter(
+            User.telegram_user_id == user.id
+        ).first()
+        if not db_user:
+            await query.edit_message_text("âŒ Your account is not linked.")
+            return
+
+        approval = session.query(ApprovalRequest).filter(
+            ApprovalRequest.approval_id == approval_id
+        ).first()
+        if not approval:
+            await query.edit_message_text("âŒ Approval request not found")
+            return
+
+        if approval.assigned_to != db_user.id:
+            await query.edit_message_text("âŒ You are not assigned to this approval request")
+            return
+
+        if approval.status != 'pending':
+            await query.edit_message_text(
+                f"â„¹ï¸ This approval has already been {approval.status}"
+            )
+            return
+
+        if action == 'existing':
+            await show_existing_scrum_projects(query, approval_id)
+            return
+
+        if action == 'new':
+            context.user_data['pending_project_name_approval_id'] = approval_id
+            await query.edit_message_text(
+                "ðŸ†• *Create New Scrum Project*\n\n"
+                "Reply with the Jira project name as your next message.\n"
+                "Example: `Acme Platform`\n\n"
+                "_Send /cancel to abort_",
+                parse_mode='Markdown',
+            )
+            return
+
+        if action == 'pick' and len(parts) >= 4:
+            project_key = parts[3].strip().upper()
+            await complete_existing_project_selection(
+                query=query,
+                approval=approval,
+                user=db_user,
+                project_key=project_key,
+            )
+            return
+
+    await query.edit_message_text("âŒ Unknown project selection action")
+
+
+async def show_existing_scrum_projects(query, approval_id: int):
+    """Show existing Jira projects that look usable for ScrumPilot."""
+    from backend.services.project_selection_service import list_scrum_projects
+
+    projects = list_scrum_projects()
+    if not projects:
+        await query.edit_message_text(
+            "âŒ No Scrum-compatible Jira projects were found.\n\n"
+            "Choose *Create New Scrum Project* instead.",
+            parse_mode='Markdown',
+        )
+        return
+
+    keyboard = []
+    for project in projects[:20]:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{project['key']} - {project['name'][:35]}",
+                callback_data=f"ps_pick_{approval_id}_{project['key']}",
+            )
+        ])
+    keyboard.append([
+        InlineKeyboardButton("Create New Scrum Project", callback_data=f"ps_new_{approval_id}")
+    ])
+
+    await query.edit_message_text(
+        "ðŸ“‹ *Choose Existing Scrum Project*\n\n"
+        "Select the Jira project for this transcript run.\n"
+        "Projects with missing boards can still be selected and will be checked during resume.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown',
+    )
+
+
+async def handle_project_name_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Capture PM-provided Jira project name, then ask for the project key."""
+    approval_id = context.user_data.get('pending_project_name_approval_id')
+    if not approval_id:
+        return
+
+    project_name = update.message.text.strip()
+    if not project_name:
+        await update.message.reply_text("âŒ Project name cannot be empty. Please try again.")
+        return
+
+    context.user_data['pending_project_name'] = project_name
+    context.user_data['pending_project_key_approval_id'] = approval_id
+    context.user_data['pending_project_name_approval_id'] = None
+
+    await update.message.reply_text(
+        "ðŸ”‘ *Project Key Required*\n\n"
+        f"Project name: *{project_name}*\n\n"
+        "Reply with the Jira project key next.\n"
+        "Rules: 2-10 uppercase letters/digits, must start with a letter.\n"
+        "Example: `ACME`, `APP2`",
+        parse_mode='Markdown',
+    )
+
+
+async def handle_project_key_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Create a new Jira Scrum project from PM-provided name/key, then resume the run."""
+    import re
+
+    approval_id = context.user_data.get('pending_project_key_approval_id')
+    project_name = context.user_data.get('pending_project_name')
+    if not approval_id or not project_name:
+        return
+
+    project_key = update.message.text.strip().upper()
+    if not re.match(r'^[A-Z][A-Z0-9]{1,9}$', project_key):
+        await update.message.reply_text(
+            "âŒ Invalid key format.\n"
+            "Use 2-10 uppercase letters/digits starting with a letter.\n"
+            "Example: `ACME`, `APP2`",
+            parse_mode='Markdown',
+        )
+        return
+
+    with get_session() as session:
+        db_user = session.query(User).filter(
+            User.telegram_user_id == update.effective_user.id
+        ).first()
+        approval = session.query(ApprovalRequest).filter(
+            ApprovalRequest.approval_id == approval_id
+        ).first()
+
+    if not db_user or not approval:
+        await update.message.reply_text("âŒ Approval request not found")
+        return
+
+    from backend.tools.jira_client import JiraManager
+
+    jira = JiraManager()
+    creation_result = jira.create_project(project_key, project_name)
+    if not creation_result.get('success'):
+        await update.message.reply_text(
+            f"âŒ Failed to create Jira project:\n{creation_result.get('error', 'Unknown error')}"
+        )
+        return
+
+    created_key = creation_result.get('key', project_key)
+    created_name = creation_result.get('name', project_name)
+
+    context.user_data['pending_project_key_approval_id'] = None
+    context.user_data['pending_project_name'] = None
+
+    created_keys = await finalize_project_selection(
+        approval_id=approval_id,
+        user_id=db_user.id,
+        project_key=created_key,
+        project_name=created_name,
+        created_new_project=True,
+    )
+
+    message = [
+        f"âœ… Created Jira Scrum project `{created_key}` ({created_name})",
+        "",
+        "âœ… Resumed pipeline successfully.",
+    ]
+    if created_keys:
+        message.append("")
+        message.append("Processed keys:")
+        for key in created_keys[:10]:
+            message.append(f"  â€¢ {key}")
+        if len(created_keys) > 10:
+            message.append(f"  â€¢ ... and {len(created_keys) - 10} more")
+
+    await update.message.reply_text("\n".join(message), parse_mode=None)
+
+
+async def complete_existing_project_selection(query, approval: ApprovalRequest, user: User, project_key: str):
+    """Validate an existing Scrum project, then resume the paused transcript run."""
+    from backend.tools.jira_client import JiraManager
+
+    jira = JiraManager()
+    validation = jira.validate_scrum_project(project_key)
+    if not validation.get('valid'):
+        problems = validation.get('problems', ['Project is not Scrum-compatible'])
+        await query.edit_message_text(
+            "âŒ Selected project is not compatible with ScrumPilot.\n\n"
+            + "\n".join(f"- {problem}" for problem in problems)
+        )
+        return
+
+    created_keys = await finalize_project_selection(
+        approval_id=approval.approval_id,
+        user_id=user.id,
+        project_key=project_key,
+        project_name=validation.get('project_name', project_key),
+        created_new_project=False,
+    )
+
+    success_lines = [
+        f"âœ… Approved by {user.display_name}",
+        "",
+        f"Using Jira Scrum project: {project_key}",
+        "",
+        "âœ… Pipeline resumed successfully.",
+    ]
+    if created_keys:
+        success_lines.append("")
+        success_lines.append("Processed keys:")
+        for key in created_keys[:10]:
+            success_lines.append(f"  â€¢ {key}")
+        if len(created_keys) > 10:
+            success_lines.append(f"  â€¢ ... and {len(created_keys) - 10} more")
+
+    await query.edit_message_text("\n".join(success_lines), parse_mode=None)
+
+
+async def finalize_project_selection(
+    *,
+    approval_id: int,
+    user_id: int,
+    project_key: str,
+    project_name: str,
+    created_new_project: bool,
+) -> list:
+    """Persist PM selection, then execute the paused pipeline."""
+    from backend.services.routing_service import register_project
+
+    with get_session() as session:
+        approval = session.query(ApprovalRequest).filter(
+            ApprovalRequest.approval_id == approval_id
+        ).first()
+        if not approval:
+            raise Exception(f"Approval #{approval_id} not found")
+
+        approved_data = dict(approval.request_data or {})
+        approved_data['selected_project_key'] = project_key
+        approved_data['selected_project_name'] = project_name
+        approved_data['created_new_project'] = created_new_project
+
+        approval.status = 'approved'
+        approval.reviewed_at = datetime.now(timezone.utc)
+        approval.approved_data = approved_data
+
+        register_project(
+            project_key=project_key,
+            name=project_name,
+            keywords=[],
+            session=session,
+            auto_created=created_new_project,
+        )
+
+        crud.add_approval_history(
+            session=session,
+            approval_id=approval.approval_id,
+            action='approved',
+            performed_by=user_id,
+            comment=f"Selected project {project_key}",
+        )
+        session.commit()
+
+    with get_session() as session:
+        approval = session.query(ApprovalRequest).filter(
+            ApprovalRequest.approval_id == approval_id
+        ).first()
+        return await execute_project_selection(approval)
+
+
+async def execute_project_selection(approval: ApprovalRequest) -> list:
+    """Resume the correct paused pipeline after PM project selection."""
+    data = approval.approved_data or approval.request_data or {}
+    pipeline_type = data.get('pipeline_type')
+
+    if pipeline_type == 'backlog':
+        return await execute_epic_creation(approval)
+    if pipeline_type == 'sprint':
+        return await execute_sprint_planning(approval)
+    if pipeline_type == 'standup':
+        return await execute_standup_update(approval)
+
+    raise Exception(f"Unknown pipeline type for project selection: {pipeline_type}")
+
+
 async def execute_epic_creation(approval: ApprovalRequest):
     """
     Execute Jira creation using JiraCreatorAgent.
@@ -727,6 +1050,7 @@ async def execute_epic_creation(approval: ApprovalRequest):
     
     # Use approved_data (which may have been edited)
     data = approval.approved_data or approval.request_data
+    selected_project_key = data.get('selected_project_key')
     
     # Get the decomposition file path
     decomposition_file = data.get('decomposition_file')
@@ -744,7 +1068,8 @@ async def execute_epic_creation(approval: ApprovalRequest):
         result = agent.create_backlog_in_jira(
             backlog_path=decomposition_file,
             dry_run=False,
-            resume=True  # Enable idempotency
+            resume=True,  # Enable idempotency
+            forced_project_key=selected_project_key,
         )
         
         logger.info(f"Jira creation complete:")
@@ -989,6 +1314,7 @@ async def execute_story_creation(approval: ApprovalRequest):
     from datetime import datetime, timezone
     
     data = approval.approved_data or approval.request_data
+    selected_project_key = data.get('selected_project_key')
     stories_data = data.get('stories', [])
     
     logger.info(f"Creating {len(stories_data)} story(ies) in Jira")
@@ -1140,6 +1466,7 @@ async def execute_sprint_planning(approval: ApprovalRequest):
     
     # Use approved_data (which may have been edited)
     data = approval.approved_data or approval.request_data
+    selected_project_key = data.get('selected_project_key')
     
     # Get the sprint plan file path
     sprint_plan_file = data.get('sprint_plan_file')
@@ -1167,7 +1494,10 @@ async def execute_sprint_planning(approval: ApprovalRequest):
         sprint_plan = SprintPlanningResult(**sprint_plan_data)
         
         # Create sprint in Jira
-        jira_result = pipeline._create_sprint_in_jira(sprint_plan)
+        jira_result = pipeline._create_sprint_in_jira(
+            sprint_plan,
+            project_key=selected_project_key,
+        )
         
         logger.info(f"Sprint creation complete:")
         logger.info(f"  Sprint: {jira_result.get('sprint_name')}")
@@ -1199,44 +1529,6 @@ async def execute_sprint_planning(approval: ApprovalRequest):
     except Exception as e:
         logger.error(f"Failed to create sprint: {e}", exc_info=True)
         raise Exception(f"Failed to create sprint: {str(e)}")
-    story_ids = data.get('story_ids', [])
-    start_date = data.get('start_date')
-    end_date = data.get('end_date')
-    
-    logger.info(f"Creating sprint: {sprint_name}")
-    
-    jira = JiraManager()
-    
-    # Calculate dates if not provided
-    if not start_date:
-        start_date = datetime.now().strftime('%Y-%m-%d')
-    if not end_date:
-        start = datetime.strptime(start_date, '%Y-%m-%d')
-        end = start + timedelta(weeks=2)
-        end_date = end.strftime('%Y-%m-%d')
-    
-    # Create sprint
-    result = jira.create_sprint(
-        name=sprint_name,
-        goal=sprint_goal,
-        start_date=start_date,
-        end_date=end_date
-    )
-    
-    if not result.get('success'):
-        raise Exception(f"Failed to create sprint: {result.get('error')}")
-    
-    sprint_id = result.get('id')
-    sprint_key = result.get('key')
-    
-    logger.info(f"Created sprint: {sprint_key}")
-    
-    # Move stories to sprint
-    if story_ids:
-        move_result = jira.move_issues_to_sprint(story_ids, sprint_id)
-        logger.info(f"Moved {move_result.get('moved', 0)} stories to sprint")
-    
-    return [sprint_key]
 
 
 
@@ -1259,6 +1551,7 @@ async def execute_standup_update(approval: ApprovalRequest):
     
     # Use approved_data (which may have been edited)
     data = approval.approved_data or approval.request_data
+    selected_project_key = data.get('selected_project_key')
     
     # Get the actions file path
     actions_file = data.get('actions_file')
@@ -1279,7 +1572,7 @@ async def execute_standup_update(approval: ApprovalRequest):
     logger.info(f"Updating Jira tickets from {len(actions)} standup actions")
     
     # Use JiraAgent to execute actions
-    jira_agent = JiraAgent()
+    jira_agent = JiraAgent(default_project_key=selected_project_key)
     
     try:
         # Execute all actions in Jira
@@ -1301,7 +1594,7 @@ async def execute_standup_update(approval: ApprovalRequest):
                     action_type = action.get('action')
                     summary = action.get('summary', '')
                     
-                    # Extract ticket key from summary (e.g., "SP-189", "MOBILE-42")
+                    # Extract ticket key from summary (e.g., "ACME-189")
                     match = re.search(r'([A-Z][A-Z0-9]+-\d+)', summary)
                     if not match:
                         logger.warning(f"No ticket key found in action: {summary}")

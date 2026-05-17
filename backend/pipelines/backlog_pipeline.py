@@ -909,16 +909,14 @@ class BacklogPipeline:
         Create complete hierarchy in Jira with partial failure handling.
         
         If one Epic fails, continues with remaining Epics and reports failures.
-        Runs a pre-flight routing check: unknown projects trigger a PM approval
-        request and those items are routed to triage in the meantime.
+        In the unified workflow, Jira project selection happens before this
+        step, so creation runs directly against the chosen Scrum project flow.
         """
         print("Creating backlog in Jira...")
         print("(Partial failure handling enabled)")
         
         if dry_run:
             print("  DRY RUN MODE - No actual Jira creation")
-
-        self._preflight_routing_check(decomposed_file, dry_run)
 
         agent = JiraCreatorAgent()
         
@@ -969,6 +967,15 @@ class BacklogPipeline:
             )
         
         print(f"\nSaved to: {output_path}")
+
+        created_count = (
+            result.epics_created + result.stories_created + result.tasks_created
+        )
+        if result.errors and created_count == 0 and not dry_run:
+            raise Exception(
+                "Jira creation failed: 0 items were created. "
+                f"First error: {result.errors[0]}"
+            )
 
         # Save Epic/Story/Task rows to DB, then persist routing metadata
         self._save_jira_result_to_db(result, decomposed_file)
@@ -1191,12 +1198,12 @@ class BacklogPipeline:
                     decision = RoutingDecision(
                         project_key=routing_data.get("project_key", ""),
                         project_name=routing_data.get("project_key", ""),
-                        component=routing_data.get("component"),
+                        component=None,
                         matched_project=True,
                         matched_team=routing_data.get("team_name") is not None,
                         team_name=routing_data.get("team_name"),
                         confidence=routing_data.get("confidence", 1.0),
-                        decision_reason=routing_data.get("source", "keyword_match"),
+                        decision_reason=routing_data.get("source", "llm_routing"),
                     )
 
                     # Update Epic row
@@ -1481,8 +1488,13 @@ class BacklogPipeline:
         
         logger.info(f"Assigning approval to PM user ID: {pm_user_id}")
         
-        # Get system/bot user (requester)
-        system_user_id = 1  # Bot user ID
+        # Get system/bot user (requester). Fall back to pm_user_id if no
+        # dedicated bot/system user (id=1) exists yet in the users table.
+        from backend.db.connection import get_session as _gs
+        from backend.db.models import User as _User
+        with _gs() as _s:
+            _bot = _s.query(_User).filter(_User.id == 1).first()
+        system_user_id = 1 if _bot else pm_user_id
         
         # Create approval request
         approval_id = approval_service.create_epic_approval(
@@ -1509,9 +1521,9 @@ class BacklogPipeline:
     def _create_telegram_approval_after_decomposition(self, decomposition_file: str) -> int:
         """
         Create Telegram approval request AFTER decomposition.
-        
-        This sends the complete decomposed backlog (epics + stories + tasks)
-        for PM approval before Jira creation.
+
+        The PM chooses whether to use an existing Scrum project or create
+        a new Scrum project. Jira creation resumes only after that choice.
         
         Args:
             decomposition_file: Path to decomposed backlog JSON file
@@ -1524,7 +1536,7 @@ class BacklogPipeline:
         """
         from backend.telegram.services.approval_service import approval_service
         
-        logger.info("Creating Telegram approval request for decomposed backlog")
+        logger.info("Creating project selection approval for decomposed backlog")
         
         # Load decomposed data
         with open(decomposition_file, 'r', encoding='utf-8') as f:
@@ -1542,7 +1554,7 @@ class BacklogPipeline:
             for s in e.get('stories', [])
         )
         
-        logger.info(f"Found {len(epics)} epic(s), {total_stories} stories, {total_tasks} tasks for approval")
+        logger.info(f"Found {len(epics)} epic(s), {total_stories} stories, {total_tasks} tasks for project selection")
         
         # Get PM user for approval assignment
         pm_user_id = approval_service.get_pm_user_id()
@@ -1555,11 +1567,16 @@ class BacklogPipeline:
         logger.info(f"Assigning approval to PM user ID: {pm_user_id}")
         
         # Get system/bot user (requester)
-        system_user_id = 1  # Bot user ID
+        # Get system/bot user (requester). Fall back to pm_user_id if no
+        # dedicated bot/system user (id=1) exists yet in the users table.
+        from backend.db.connection import get_session as _gs2
+        from backend.db.models import User as _User2
+        with _gs2() as _s2:
+            _bot2 = _s2.query(_User2).filter(_User2.id == 1).first()
+        system_user_id = 1 if _bot2 else pm_user_id
         
-        # Create approval request with decomposed data
-        # Store the decomposition file path so we can use it for Jira creation
         approval_data = {
+            'pipeline_type': 'backlog',
             'decomposition_file': decomposition_file,
             'epics': epics,
             'summary': {
@@ -1569,8 +1586,8 @@ class BacklogPipeline:
             }
         }
         
-        approval_id = approval_service.create_epic_approval(
-            epics_data=approval_data,
+        approval_id = approval_service.create_project_selection_approval(
+            request_data=approval_data,
             requested_by_user_id=system_user_id,
             assigned_to_user_id=pm_user_id,
             priority='high'
@@ -1579,7 +1596,7 @@ class BacklogPipeline:
         logger.info(f"Created approval request #{approval_id}")
         
         # Log summary
-        print(f"\nDecomposed backlog submitted for approval:")
+        print(f"\nDecomposed backlog submitted for project selection:")
         print(f"  Total Epics: {len(epics)}")
         print(f"  Total Stories: {total_stories}")
         print(f"  Total Tasks: {total_tasks}")

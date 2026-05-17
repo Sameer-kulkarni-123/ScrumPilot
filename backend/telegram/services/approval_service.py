@@ -166,6 +166,49 @@ class ApprovalService:
                 )
             
             return approval_id
+
+    @staticmethod
+    def create_project_selection_approval(
+        request_data: Dict[str, Any],
+        requested_by_user_id: int,
+        assigned_to_user_id: int,
+        priority: str = 'high'
+    ) -> int:
+        """Create approval request for PM Jira project selection with no expiry."""
+        with get_session() as session:
+            approval = ApprovalRequest(
+                request_type='project_selection',
+                entity_type='jira_project',
+                entity_id=0,
+                requested_by=requested_by_user_id,
+                assigned_to=assigned_to_user_id,
+                status='pending',
+                priority=priority,
+                request_data=request_data,
+                original_data=request_data,
+                created_at=datetime.now(timezone.utc),
+                expires_at=None
+            )
+
+            session.add(approval)
+            session.commit()
+            session.refresh(approval)
+
+            approval_id = approval.approval_id
+            logger.info(f"Created project selection approval request #{approval_id}")
+
+            assigned_user = session.query(User).filter(
+                User.id == assigned_to_user_id
+            ).first()
+
+            if assigned_user and assigned_user.telegram_user_id:
+                ApprovalService._send_telegram_notification(
+                    telegram_user_id=assigned_user.telegram_user_id,
+                    telegram_chat_id=assigned_user.telegram_chat_id,
+                    approval_id=approval_id
+                )
+
+            return approval_id
     
     @staticmethod
     def _send_telegram_notification(
@@ -228,6 +271,21 @@ class ApprovalService:
                 return None
             
             return pm_user.id
+
+    @staticmethod
+    def get_requester_user_id(fallback_user_id: Optional[int] = None) -> Optional[int]:
+        """
+        Get the system requester user ID for approval creation.
+
+        Prefers a dedicated bot/system user with id=1 when present.
+        Falls back to the provided user ID when the bot user has not been seeded.
+        """
+        with get_session() as session:
+            bot_user = session.query(User).filter(User.id == 1).first()
+            if bot_user:
+                return bot_user.id
+
+        return fallback_user_id
 
 
 # Singleton instance

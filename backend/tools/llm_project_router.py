@@ -129,17 +129,14 @@ class LLMProjectRouter:
                 "3. If the epic does NOT fit any listed project at all, "
                 "   set is_new=true and suggest an appropriate project key "
                 "   (2-10 UPPERCASE letters) and name from the epic context.\n"
-                "4. Infer the team component from the epic content "
-                "   (Backend / Frontend / DevOps / Mobile / Data / General).\n"
-                "5. confidence: 0.0-1.0 — how certain you are about the project match.\n\n"
+                "4. confidence: 0.0-1.0 — how certain you are about the project match.\n\n"
                 "Return JSON with exactly these fields:\n"
                 "{{\n"
                 '  "project_key":    "<existing key or null if is_new>",\n'
                 '  "project_name":   "<existing name or null if is_new>",\n'
                 '  "is_new":         <true|false>,\n'
-                '  "suggested_key":  "<NEW_KEY or null>",\n'
+                '  "suggested_key":  "<NEW_KEY or null — UPPERCASE, no spaces, no special chars, 2-10 chars>",\n'
                 '  "suggested_name": "<New Project Name or null>",\n'
-                '  "component":      "<Backend|Frontend|DevOps|Mobile|Data|General>",\n'
                 '  "confidence":     <0.0-1.0>,\n'
                 '  "reason":         "<one sentence>"\n'
                 "}}"
@@ -150,7 +147,6 @@ class LLMProjectRouter:
     def _parse_llm_result(self, result: Dict, title: str) -> RoutingDecision:
         is_new     = bool(result.get("is_new", False))
         confidence = float(result.get("confidence", 0.5))
-        component  = result.get("component") or "General"
         reason     = result.get("reason", "llm_routing")
 
         # Treat low-confidence existing-project matches as "new" too
@@ -158,12 +154,15 @@ class LLMProjectRouter:
             is_new = True
 
         if is_new:
-            suggested_key  = result.get("suggested_key") or _derive_key(title)
+            raw_key = result.get("suggested_key") or ""
+            # Sanitize: uppercase, strip spaces and non-alphanumeric chars
+            sanitized_key = re.sub(r"[^A-Z0-9]", "", raw_key.upper())
+            suggested_key  = sanitized_key[:10] if sanitized_key else _derive_key(title)
             suggested_name = result.get("suggested_name") or title
             return RoutingDecision(
                 project_key=suggested_key,
                 project_name=suggested_name,
-                component=component,
+                component=None,
                 matched_project=False,
                 matched_team=False,
                 is_triage=False,
@@ -182,11 +181,11 @@ class LLMProjectRouter:
         return RoutingDecision(
             project_key=project_key,
             project_name=project_name,
-            component=component,
+            component=None,
             matched_project=True,
-            matched_team=bool(component and component != "General"),
+            matched_team=False,
             is_triage=False,
-            team_name=component.lower() if component != "General" else None,
+            team_name=None,
             confidence=confidence,
             decision_reason=f"llm:{reason[:60]}",
             is_new_project_candidate=False,
@@ -198,7 +197,7 @@ class LLMProjectRouter:
         return RoutingDecision(
             project_key=_derive_key(title),
             project_name=title,
-            component="General",
+            component=None,
             matched_project=False,
             matched_team=False,
             is_triage=False,
@@ -212,12 +211,18 @@ class LLMProjectRouter:
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def _derive_key(name: str) -> str:
-    """Generate a safe Jira project key from a name (up to 8 chars, uppercase)."""
-    words = re.sub(r"[^a-zA-Z0-9 ]", "", name).upper().split()
+    """Generate a safe Jira project key from a name (up to 8 chars, uppercase, no spaces)."""
+    # Strip everything except letters and digits, then uppercase
+    clean = re.sub(r"[^a-zA-Z0-9 ]", "", name).upper()
+    words = clean.split()
     if not words:
         return "PROJ"
     if len(words) == 1:
-        return words[0][:8]
-    # Acronym from first letters of each word
-    acronym = "".join(w[0] for w in words if w)[:8]
-    return acronym if len(acronym) >= 2 else words[0][:8]
+        key = words[0][:8]
+    else:
+        # Acronym from first letters of each word
+        acronym = "".join(w[0] for w in words if w)[:8]
+        key = acronym if len(acronym) >= 2 else words[0][:8]
+    # Final guard: remove any remaining non-alphanumeric characters
+    key = re.sub(r"[^A-Z0-9]", "", key)
+    return key or "PROJ"

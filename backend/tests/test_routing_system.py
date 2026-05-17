@@ -288,7 +288,7 @@ class TestRoutingService:
         persist_routing_on_epic(epic, d)
         assert epic.jira_project_key == "SP"
         assert epic.team_name == "backend"
-        assert epic.jira_component == "Backend"
+        assert epic.jira_component is None  # Components removed: items live directly under project
         assert epic.routing_confidence == 0.9
         assert epic.routing_source == "keyword_match"
 

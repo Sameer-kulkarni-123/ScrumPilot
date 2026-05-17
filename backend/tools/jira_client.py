@@ -1,4 +1,4 @@
-﻿import os
+import os
 import time
 import logging
 from collections import deque
@@ -42,6 +42,158 @@ class JiraManager:
         
         logger.info(f"Rate limiting enabled: {self.rate_limit_calls} calls per {self.rate_limit_period}s")
         logger.info(f"Retry enabled: max {self.max_retries} attempts with exponential backoff")
+
+    # ── Project metadata ─────────────────────────────────────────────────
+
+    def get_project_issue_types(self, project_key: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return issue types configured for a Jira project."""
+        effective_project_key = project_key or self.project_key
+        if not effective_project_key:
+            return []
+
+        self._enforce_rate_limit()
+
+        try:
+            project = self.client.project(effective_project_key)
+            issue_types = []
+            for issue_type in getattr(project, "issueTypes", []):
+                issue_types.append({
+                    "name": getattr(issue_type, "name", ""),
+                    "subtask": bool(getattr(issue_type, "subtask", False)),
+                })
+            return issue_types
+        except Exception as e:
+            logger.warning(
+                f"Could not fetch issue types for project '{effective_project_key}': {e}"
+            )
+            return []
+
+    def resolve_issue_type_name(
+        self,
+        preferred: str,
+        project_key: Optional[str] = None,
+        fallbacks: Optional[List[str]] = None,
+    ) -> str:
+        """Resolve a requested issue type to the configured project spelling."""
+        issue_types = self.get_project_issue_types(project_key)
+        if not issue_types:
+            return preferred
+
+        names_by_normalized = {
+            issue_type["name"].lower().replace("-", "").replace(" ", ""): issue_type["name"]
+            for issue_type in issue_types
+            if issue_type.get("name")
+        }
+        candidates = [preferred] + (fallbacks or [])
+        for candidate in candidates:
+            normalized = candidate.lower().replace("-", "").replace(" ", "")
+            if normalized in names_by_normalized:
+                return names_by_normalized[normalized]
+
+        return preferred
+
+    def project_supports_issue_types(
+        self,
+        project_key: Optional[str] = None,
+        required: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Check whether a project supports the issue types needed for backlog creation."""
+        required = required or ["Epic", "Story"]
+        issue_types = self.get_project_issue_types(project_key)
+        available = {issue_type["name"] for issue_type in issue_types}
+        normalized_available = {
+            name.lower().replace("-", "").replace(" ", "")
+            for name in available
+        }
+        missing = [
+            name for name in required
+            if name.lower().replace("-", "").replace(" ", "") not in normalized_available
+        ]
+        return {
+            "success": True,
+            "available": sorted(available),
+            "missing": missing,
+            "supports": not missing,
+        }
+
+    def get_project_boards(self, project_key: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return Scrum boards associated with a Jira project."""
+        effective_project_key = project_key or self.project_key
+        if not effective_project_key:
+            return []
+
+        self._enforce_rate_limit()
+
+        try:
+            project = self.client.project(effective_project_key)
+            project_id = getattr(project, "id", None)
+
+            candidates = [effective_project_key]
+            if project_id is not None:
+                candidates.append(str(project_id))
+
+            boards_by_id: Dict[Any, Dict[str, Any]] = {}
+            for candidate in candidates:
+                for params in (
+                    {"projectKeyOrId": candidate, "type": "scrum"},
+                    {"projectKeyOrId": candidate},
+                ):
+                    response = self.client._session.get(
+                        f"{self.url}/rest/agile/1.0/board",
+                        params=params,
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+
+                    for board in payload.get("values", []):
+                        board_type = board.get("type")
+                        if board_type != "scrum":
+                            continue
+                        boards_by_id[board.get("id")] = {
+                            "id": board.get("id"),
+                            "name": board.get("name"),
+                            "type": board_type,
+                        }
+
+            return list(boards_by_id.values())
+        except Exception as e:
+            logger.warning(
+                f"Could not fetch Scrum boards for project '{effective_project_key}': {e}"
+            )
+            return []
+
+    def validate_scrum_project(self, project_key: Optional[str] = None) -> Dict[str, Any]:
+        """Validate that a Jira project is compatible with the ScrumPilot workflow."""
+        effective_project_key = project_key or self.project_key
+        issue_type_check = self.project_supports_issue_types(
+            effective_project_key,
+            required=["Epic", "Story", "Sub-task"],
+        )
+        boards = self.get_project_boards(effective_project_key)
+        problems = []
+
+        if not issue_type_check.get("supports"):
+            available = ", ".join(issue_type_check.get("available", [])) or "(none)"
+            missing = ", ".join(issue_type_check.get("missing", []))
+            problems.append(f"Missing issue types: {missing}. Available: {available}.")
+
+        if not boards:
+            problems.append("No Scrum board found for this project.")
+
+        project_name = effective_project_key
+        try:
+            project_name = self.client.project(effective_project_key).name
+        except Exception:
+            pass
+
+        return {
+            "valid": not problems,
+            "project_key": effective_project_key,
+            "project_name": project_name,
+            "available_issue_types": issue_type_check.get("available", []),
+            "boards": boards,
+            "problems": problems,
+        }
 
     # ── Retry Logic ───────────────────────────────────────────────────────
 
@@ -183,7 +335,6 @@ class JiraManager:
             parent_key: Optional parent issue key (for Sub-tasks or Tasks under Stories).
             epic_link: Optional Epic key to link this issue to (for Stories under Epics).
             project_key: Override the default project key for this call.
-            component: Jira component name to assign (e.g. "Backend", "Frontend").
 
         Returns:
             dict with keys: success (bool), key (str), summary (str), message (str)
@@ -211,17 +362,22 @@ class JiraManager:
         self._enforce_rate_limit()
         
         effective_project_key = project_key or self.project_key
+        resolved_issue_type = self.resolve_issue_type_name(
+            issue_type,
+            project_key=effective_project_key,
+            fallbacks=["Sub-task"] if issue_type.lower().replace("-", "").replace(" ", "") == "subtask" else None,
+        )
         
         try:
             fields = {
                 "project": {"key": effective_project_key},
                 "summary": summary,
                 "description": description,
-                "issuetype": {"name": issue_type},
+                "issuetype": {"name": resolved_issue_type},
             }
             if assignee_email:
                 fields["assignee"] = {"name": assignee_email}
-            
+
             if component:
                 fields["components"] = [{"name": component}]
             
@@ -231,7 +387,7 @@ class JiraManager:
             
             # For Stories, set parent to Epic (next-gen/team-managed projects)
             # In next-gen projects, Stories link to Epics via the parent field
-            if epic_link and issue_type == "Story":
+            if epic_link and resolved_issue_type.lower() == "story":
                 fields["parent"] = {"key": epic_link}
 
             new_issue = self.client.create_issue(fields=fields)
@@ -261,7 +417,6 @@ class JiraManager:
             description: Detailed Epic description.
             epic_name: Optional Epic name (short identifier) - NOT USED (field varies by Jira config).
             project_key: Override the default project key for this call.
-            component: Jira component name to assign (e.g. "Backend", "Frontend").
 
         Returns:
             dict with keys: success (bool), key (str), summary (str), message (str)
@@ -285,15 +440,16 @@ class JiraManager:
         self._enforce_rate_limit()
         
         effective_project_key = project_key or self.project_key
+        resolved_issue_type = self.resolve_issue_type_name("Epic", project_key=effective_project_key)
         
         try:
             fields = {
                 "project": {"key": effective_project_key},
                 "summary": summary,
                 "description": description,
-                "issuetype": {"name": "Epic"},
+                "issuetype": {"name": resolved_issue_type},
             }
-            
+
             if component:
                 fields["components"] = [{"name": component}]
             
@@ -545,7 +701,8 @@ class JiraManager:
         goal: str,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        board_id: Optional[int] = None
+        board_id: Optional[int] = None,
+        project_key: Optional[str] = None,
     ) -> Dict:
         """
         Create a new sprint in Jira.
@@ -566,10 +723,10 @@ class JiraManager:
         try:
             # Get board ID if not provided
             if not board_id:
-                boards = self.client.boards()
+                boards = self.get_project_boards(project_key)
                 if not boards:
                     return {"success": False, "error": "No boards found in project"}
-                board_id = boards[0].id
+                board_id = boards[0]["id"]
                 logger.info(f"Using board ID: {board_id}")
             
             # Create sprint
@@ -713,7 +870,7 @@ class JiraManager:
             "message": f"Assigned {assigned}/{len(assignments)} issues."
         }
 
-    def get_active_sprints(self, board_id: Optional[int] = None) -> Dict:
+    def get_active_sprints(self, board_id: Optional[int] = None, project_key: Optional[str] = None) -> Dict:
         """
         Get all active sprints.
         
@@ -729,10 +886,10 @@ class JiraManager:
         try:
             # Get board ID if not provided
             if not board_id:
-                boards = self.client.boards()
+                boards = self.get_project_boards(project_key)
                 if not boards:
                     return {"success": False, "error": "No boards found in project"}
-                board_id = boards[0].id
+                board_id = boards[0]["id"]
             
             sprints = self.client.sprints(board_id, state='active')
             
@@ -756,6 +913,99 @@ class JiraManager:
             logger.error(f"Failed to get active sprints: {e}")
             return {"success": False, "error": str(e)}
 
+
+    def create_project(
+        self,
+        key: str,
+        name: str,
+        lead_account_id: Optional[str] = None,
+        template_key: str = "com.pyxis.greenhopper.jira:gh-simplified-agility-scrum",
+    ) -> Dict:
+        """
+        Create a new Jira project with the Scrum software template.
+
+        Only Scrum template is used — no Kanban, no Basic project.
+
+        Args:
+            key: Project key (2-10 uppercase letters, e.g. "MOBILE")
+            name: Human-readable project name (e.g. "Mobile App")
+            lead_account_id: Jira account ID of the project lead (uses caller
+                             account if None)
+            template_key: Jira project template key (default Scrum simplified)
+
+        Returns:
+            dict with keys: success (bool), key (str), name (str), message (str)
+        """
+        self._enforce_rate_limit()
+        try:
+            import re
+            key = key.strip().upper()
+            if not re.match(r'^[A-Z][A-Z0-9]{1,9}$', key):
+                return {
+                    "success": False,
+                    "error": (
+                        f"Invalid project key '{key}'. "
+                        "Must be 2–10 uppercase letters/digits starting with a letter."
+                    )
+                }
+
+            # Resolve lead account ID from current user if not provided
+            if not lead_account_id:
+                try:
+                    myself = self.client.myself()
+                    lead_account_id = myself.get("accountId")
+                except Exception:
+                    pass
+
+            # Check if project already exists (idempotency)
+            try:
+                existing = self.client.project(key)
+                validation = self.validate_scrum_project(key)
+                if not validation.get("valid"):
+                    return {
+                        "success": False,
+                        "error": (
+                            f"Project '{key}' already exists but is not Scrum-compatible: "
+                            + "; ".join(validation.get("problems", []))
+                        ),
+                    }
+                logger.info(f"Jira project '{key}' already exists — skipping creation")
+                return {
+                    "success": True,
+                    "key": existing.key,
+                    "name": existing.name,
+                    "message": f"Project '{existing.key}' already exists.",
+                }
+            except Exception:
+                pass  # Does not exist, proceed with creation
+
+            payload = {
+                "key": key,
+                "name": name,
+                "projectTypeKey": "software",
+                "projectTemplateKey": template_key,
+                "assigneeType": "PROJECT_LEAD",
+            }
+            if lead_account_id:
+                payload["leadAccountId"] = lead_account_id
+
+            project = self.client._session.post(
+                f"{self.url}/rest/api/3/project",
+                json=payload,
+            )
+            project.raise_for_status()
+            created = project.json()
+            created_key = created.get("key", key)
+            logger.info(f"Jira Scrum project '{created_key}' created successfully")
+            return {
+                "success": True,
+                "key": created_key,
+                "name": name,
+                "message": f"Scrum project '{created_key}' created successfully.",
+            }
+        except Exception as e:
+            logger.error(f"Failed to create Jira project '{key}': {e}")
+            return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     # For local testing

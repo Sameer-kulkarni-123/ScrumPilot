@@ -412,10 +412,10 @@ class SprintPlanningPipeline:
         extraction_file: str
     ) -> int:
         """
-        Create Telegram approval request for sprint planning.
-        
-        This sends the complete sprint plan (goal, stories, assignments)
-        for PM approval before Jira creation.
+        Create Telegram project selection request for sprint planning.
+
+        The PM chooses the Scrum project first. Sprint creation resumes only
+        after that choice is completed.
         
         Args:
             sprint_plan: Extracted sprint planning result
@@ -429,7 +429,7 @@ class SprintPlanningPipeline:
         """
         from backend.telegram.services.approval_service import approval_service
         
-        logger.info("Creating Telegram approval request for sprint planning")
+        logger.info("Creating project selection approval for sprint planning")
         
         # Count stories and assignments
         total_stories = len(sprint_plan.commitment.story_ids)
@@ -451,11 +451,12 @@ class SprintPlanningPipeline:
         
         logger.info(f"Assigning approval to PM user ID: {pm_user_id}")
         
-        # Get system/bot user (requester)
-        system_user_id = 1  # Bot user ID
+        # Get system/bot user (requester). Fall back to the PM user if no
+        # dedicated bot/system user exists yet in the users table.
+        system_user_id = approval_service.get_requester_user_id(pm_user_id)
         
-        # Create approval request with sprint plan data
         approval_data = {
+            'pipeline_type': 'sprint',
             'sprint_plan_file': extraction_file,
             'sprint_goal': sprint_plan.sprint_goal,
             'sprint_number': sprint_plan.sprint_number,
@@ -480,8 +481,8 @@ class SprintPlanningPipeline:
             }
         }
         
-        approval_id = approval_service.create_sprint_approval(
-            sprint_data=approval_data,
+        approval_id = approval_service.create_project_selection_approval(
+            request_data=approval_data,
             requested_by_user_id=system_user_id,
             assigned_to_user_id=pm_user_id,
             priority='high'
@@ -507,7 +508,8 @@ class SprintPlanningPipeline:
     
     def _create_sprint_in_jira(
         self,
-        sprint_plan: SprintPlanningResult
+        sprint_plan: SprintPlanningResult,
+        project_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Create sprint in Jira and move stories.
@@ -553,7 +555,8 @@ class SprintPlanningPipeline:
                 name=sprint_name,
                 goal=sprint_plan.sprint_goal,
                 start_date=start_date,
-                end_date=end_date
+                end_date=end_date,
+                project_key=project_key,
             )
             
             result['sprint_id'] = sprint_data.get('id')

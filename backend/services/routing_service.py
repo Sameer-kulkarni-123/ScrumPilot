@@ -113,7 +113,6 @@ def build_project_creation_approval_data(
         "routing_decision": {
             "project_key": decision.project_key,
             "team_name": decision.team_name,
-            "component": decision.component,
             "decision_reason": decision.decision_reason,
         },
     }
@@ -242,7 +241,7 @@ def persist_routing_on_epic(epic_db_obj: Any, decision: RoutingDecision) -> None
     """Apply routing metadata fields to an Epic ORM object (does NOT commit)."""
     epic_db_obj.jira_project_key = decision.project_key
     epic_db_obj.team_name = decision.team_name
-    epic_db_obj.jira_component = decision.component
+    epic_db_obj.jira_component = None  # Components removed: items live directly under project
     epic_db_obj.routing_confidence = round(decision.confidence, 3)
     epic_db_obj.routing_source = (decision.decision_reason or "keyword_match")[:20]
 
@@ -251,7 +250,7 @@ def persist_routing_on_story(story_db_obj: Any, decision: RoutingDecision) -> No
     """Apply routing metadata fields to a Story ORM object (does NOT commit)."""
     story_db_obj.jira_project_key = decision.project_key
     story_db_obj.team_name = decision.team_name
-    story_db_obj.jira_component = decision.component
+    story_db_obj.jira_component = None  # Components removed: items live directly under project
     story_db_obj.routing_confidence = round(decision.confidence, 3)
     story_db_obj.routing_source = (decision.decision_reason or "keyword_match")[:20]
 
@@ -260,7 +259,7 @@ def persist_routing_on_task(task_db_obj: Any, decision: RoutingDecision) -> None
     """Apply routing metadata fields to a BacklogTask ORM object (does NOT commit)."""
     task_db_obj.jira_project_key = decision.project_key
     task_db_obj.team_name = decision.team_name
-    task_db_obj.jira_component = decision.component
+    task_db_obj.jira_component = None  # Components removed: items live directly under project
     task_db_obj.routing_confidence = round(decision.confidence, 3)
     task_db_obj.routing_source = (decision.decision_reason or "keyword_match")[:20]
 
@@ -269,6 +268,6 @@ def persist_routing_on_scrum_action(action_db_obj: Any, decision: RoutingDecisio
     """Apply routing metadata fields to a ScrumAction ORM object (does NOT commit)."""
     action_db_obj.jira_project_key = decision.project_key
     action_db_obj.team_name = decision.team_name
-    action_db_obj.jira_component = decision.component
+    action_db_obj.jira_component = None  # Components removed: items live directly under project
     action_db_obj.routing_confidence = round(decision.confidence, 3)
     action_db_obj.routing_source = (decision.decision_reason or "keyword_match")[:20]

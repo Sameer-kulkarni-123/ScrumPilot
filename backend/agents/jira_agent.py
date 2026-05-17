@@ -13,7 +13,6 @@ import logging
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from backend.tools.jira_client import JiraManager
-from backend.tools.jira_routing import load_jira_routing_config, JiraRoutingResolver
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,7 @@ class JiraAgent:
     the LangChain agent framework complexity.
     """
 
-    def __init__(self, jira_manager=None):
+    def __init__(self, jira_manager=None, default_project_key: Optional[str] = None):
         """
         Args:
             jira_manager: A JiraManager instance (or mock). If None, a real
@@ -37,14 +36,7 @@ class JiraAgent:
         else:
             self.jira = jira_manager
 
-        self.routing_resolver: Optional[JiraRoutingResolver] = None
-        try:
-            routing_config = load_jira_routing_config()
-            if routing_config:
-                self.routing_resolver = JiraRoutingResolver(routing_config)
-                logger.info("Jira routing config loaded for JiraAgent")
-        except Exception as e:
-            logger.warning(f"Routing config not loaded for JiraAgent: {e}")
+        self.default_project_key = default_project_key or getattr(self.jira, "project_key", None)
         
         logger.info("JiraAgent initialized")
 
@@ -136,20 +128,13 @@ Summary:
         description = action.get('description', '')
         assignee = action.get('assignee')
 
-        project_key = None
-        component = None
-        if self.routing_resolver:
-            routing = self.routing_resolver.resolve(summary or "", description)
-            project_key = routing.project_key or None
-            component = routing.component or None
-        
         result = self.jira.create_ticket(
             summary=summary,
             description=description,
             issue_type="Task",
             assignee_email=assignee,
-            project_key=project_key,
-            component=component,
+            project_key=self.default_project_key,
+            component=None,
         )
         
         if result.get('success'):

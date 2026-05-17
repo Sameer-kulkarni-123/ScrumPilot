@@ -758,7 +758,13 @@ class JiraCreatorAgent:
                 error=str(e)
             )
 
-    def create_backlog_in_jira(self, backlog_path: str, dry_run: bool = False, resume: bool = True) -> JiraCreationResult:
+    def create_backlog_in_jira(
+        self,
+        backlog_path: str,
+        dry_run: bool = False,
+        resume: bool = True,
+        forced_project_key: Optional[str] = None,
+    ) -> JiraCreationResult:
         """
         Create complete backlog in Jira from decomposed backlog file.
         
@@ -772,6 +778,8 @@ class JiraCreatorAgent:
             backlog_path: Path to decomposed backlog JSON
             dry_run: If True, simulate creation without actually creating in Jira
             resume: If True, resume from previous run using saved mapping
+            forced_project_key: Jira project key selected by the PM. When set,
+                all backlog items are created in that Scrum project.
 
         Returns:
             JiraCreationResult with all creation results
@@ -826,6 +834,18 @@ class JiraCreatorAgent:
 
             if dry_run:
                 routing = self.resolve_routing(epic_title, epic_description_text)
+                if forced_project_key:
+                    routing = routing.model_copy(
+                        update={
+                            "project_key": forced_project_key,
+                            "project_name": forced_project_key,
+                            "component": None,
+                            "matched_project": True,
+                            "matched_team": False,
+                            "is_triage": False,
+                            "decision_reason": "pm_selected_project",
+                        }
+                    )
                 print(
                     f"  [DRY RUN] Would create Epic: {epic_title} "
                     f"→ project={routing.project_key}, component={routing.component}"
@@ -836,6 +856,9 @@ class JiraCreatorAgent:
             routing = self.resolve_routing(epic_title, epic_description_text)
             epic_project_key = routing.project_key or None
             epic_component = routing.component or None
+            if forced_project_key:
+                epic_project_key = forced_project_key
+                epic_component = None
 
             if routing.is_triage:
                 logger.warning(
@@ -878,6 +901,14 @@ class JiraCreatorAgent:
                 "confidence": round(routing.confidence, 3),
                 "source": (routing.decision_reason or "keyword_match")[:20],
             }
+            if forced_project_key:
+                self.creation_result.routing_decisions[epic_id] = {
+                    "project_key": forced_project_key,
+                    "team_name": None,
+                    "component": None,
+                    "confidence": 1.0,
+                    "source": "pm_selected_project",
+                }
 
             # Create Epic
             epic_result = self.create_epic_in_jira(
