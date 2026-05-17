@@ -32,7 +32,52 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user = update.effective_user
     callback_data = query.data
-    
+
+    # ── /start menu quick-action buttons ─────────────────────────────────────
+    if callback_data == "start_meet":
+        await query.edit_message_text(
+            "🎥 *Start Meet Bot (End-to-End)*\n\n"
+            "Please send the Google Meet link:\n"
+            "`https://meet.google.com/xxx-yyyy-zzz`",
+            parse_mode="Markdown",
+        )
+        context.user_data["awaiting_meet_link"] = True
+        return
+
+    if callback_data == "send_transcript":
+        await query.edit_message_text(
+            "📝 *Send Transcript (Shortcut Pipeline)*\n\n"
+            "Paste your meeting transcript below.\n\n"
+            "The bot will:\n"
+            "1️⃣ Detect meeting type (standup / sprint planning / backlog)\n"
+            "2️⃣ Run the appropriate pipeline\n"
+            "3️⃣ Send approval request\n"
+            "4️⃣ Update Jira on approval\n\n"
+            "_Send your transcript as a single message:_",
+            parse_mode="Markdown",
+        )
+        context.user_data["awaiting_transcript"] = True
+        return
+
+    if callback_data == "view_approvals":
+        from backend.telegram.handlers.approval_handler import handle_approvals
+        # Rewrite the message then call the handler which uses effective_message
+        await query.edit_message_text("📋 Fetching your approvals…")
+        await handle_approvals(update, context)
+        return
+
+    if callback_data == "view_sprint":
+        from backend.telegram.handlers.sprint_handler import handle_sprint
+        await query.edit_message_text("🏃 Fetching sprint info…")
+        await handle_sprint(update, context)
+        return
+
+    if callback_data == "show_help":
+        from backend.telegram.handlers.help_handler import handle_help
+        await query.edit_message_text("Loading help…")
+        await handle_help(update, context)
+        return
+
     # ── User registration accept/reject ──────────────────────────────────────
     if callback_data.startswith('uacc_') or callback_data.startswith('urej_'):
         await handle_user_registration_callback(update, context, callback_data)
@@ -789,20 +834,32 @@ async def handle_project_selection_callback(
             )
             return
 
-    await query.edit_message_text("âŒ Unknown project selection action")
+    await query.edit_message_text("❌ Unknown project selection action")
 
 
 async def show_existing_scrum_projects(query, approval_id: int):
     """Show existing Jira projects that look usable for ScrumPilot."""
+    import asyncio
+    from telegram.error import BadRequest
     from backend.services.project_selection_service import list_scrum_projects
 
-    projects = list_scrum_projects()
+    try:
+        await query.edit_message_text("⏳ Fetching Jira projects... This may take a moment.")
+    except BadRequest as e:
+        if "Message is not modified" not in str(e):
+            raise
+
+    projects = await asyncio.to_thread(list_scrum_projects)
     if not projects:
-        await query.edit_message_text(
-            "âŒ No Scrum-compatible Jira projects were found.\n\n"
-            "Choose *Create New Scrum Project* instead.",
-            parse_mode='Markdown',
-        )
+        try:
+            await query.edit_message_text(
+                "❌ No Scrum-compatible Jira projects were found.\n\n"
+                "Choose *Create New Scrum Project* instead.",
+                parse_mode='Markdown',
+            )
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise
         return
 
     keyboard = []
@@ -817,13 +874,17 @@ async def show_existing_scrum_projects(query, approval_id: int):
         InlineKeyboardButton("Create New Scrum Project", callback_data=f"ps_new_{approval_id}")
     ])
 
-    await query.edit_message_text(
-        "ðŸ“‹ *Choose Existing Scrum Project*\n\n"
-        "Select the Jira project for this transcript run.\n"
-        "Projects with missing boards can still be selected and will be checked during resume.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown',
-    )
+    try:
+        await query.edit_message_text(
+            "📋 *Choose Existing Scrum Project*\n\n"
+            "Select the Jira project for this transcript run.\n"
+            "Projects with missing boards can still be selected and will be checked during resume.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown',
+        )
+    except BadRequest as e:
+        if "Message is not modified" not in str(e):
+            raise
 
 
 async def handle_project_name_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -834,7 +895,7 @@ async def handle_project_name_input(update: Update, context: ContextTypes.DEFAUL
 
     project_name = update.message.text.strip()
     if not project_name:
-        await update.message.reply_text("âŒ Project name cannot be empty. Please try again.")
+        await update.message.reply_text("❌ Project name cannot be empty. Please try again.")
         return
 
     context.user_data['pending_project_name'] = project_name
@@ -842,7 +903,7 @@ async def handle_project_name_input(update: Update, context: ContextTypes.DEFAUL
     context.user_data['pending_project_name_approval_id'] = None
 
     await update.message.reply_text(
-        "ðŸ”‘ *Project Key Required*\n\n"
+        "🔑 *Project Key Required*\n\n"
         f"Project name: *{project_name}*\n\n"
         "Reply with the Jira project key next.\n"
         "Rules: 2-10 uppercase letters/digits, must start with a letter.\n"
@@ -854,6 +915,8 @@ async def handle_project_name_input(update: Update, context: ContextTypes.DEFAUL
 async def handle_project_key_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Create a new Jira Scrum project from PM-provided name/key, then resume the run."""
     import re
+    import asyncio
+    from backend.tools.jira_client import JiraManager
 
     approval_id = context.user_data.get('pending_project_key_approval_id')
     project_name = context.user_data.get('pending_project_name')
@@ -863,7 +926,7 @@ async def handle_project_key_input(update: Update, context: ContextTypes.DEFAULT
     project_key = update.message.text.strip().upper()
     if not re.match(r'^[A-Z][A-Z0-9]{1,9}$', project_key):
         await update.message.reply_text(
-            "âŒ Invalid key format.\n"
+            "❌ Invalid key format.\n"
             "Use 2-10 uppercase letters/digits starting with a letter.\n"
             "Example: `ACME`, `APP2`",
             parse_mode='Markdown',
@@ -879,16 +942,18 @@ async def handle_project_key_input(update: Update, context: ContextTypes.DEFAULT
         ).first()
 
     if not db_user or not approval:
-        await update.message.reply_text("âŒ Approval request not found")
+        await update.message.reply_text("❌ Approval request not found")
         return
 
-    from backend.tools.jira_client import JiraManager
+    message = await update.message.reply_text(f"⏳ Creating Jira project '{project_key}'...")
 
-    jira = JiraManager()
-    creation_result = jira.create_project(project_key, project_name)
+    def _create():
+        return JiraManager().create_project(project_key, project_name)
+
+    creation_result = await asyncio.to_thread(_create)
     if not creation_result.get('success'):
-        await update.message.reply_text(
-            f"âŒ Failed to create Jira project:\n{creation_result.get('error', 'Unknown error')}"
+        await message.edit_text(
+            f"❌ Failed to create Jira project:\n{creation_result.get('error', 'Unknown error')}"
         )
         return
 
@@ -906,34 +971,48 @@ async def handle_project_key_input(update: Update, context: ContextTypes.DEFAULT
         created_new_project=True,
     )
 
-    message = [
-        f"âœ… Created Jira Scrum project `{created_key}` ({created_name})",
+    message_lines = [
+        f"✅ Created Jira Scrum project `{created_key}` ({created_name})",
         "",
-        "âœ… Resumed pipeline successfully.",
+        "✅ Resumed pipeline successfully.",
     ]
     if created_keys:
-        message.append("")
-        message.append("Processed keys:")
+        message_lines.append("")
+        message_lines.append("Processed keys:")
         for key in created_keys[:10]:
-            message.append(f"  â€¢ {key}")
+            message_lines.append(f"  • {key}")
         if len(created_keys) > 10:
-            message.append(f"  â€¢ ... and {len(created_keys) - 10} more")
+            message_lines.append(f"  • ... and {len(created_keys) - 10} more")
 
-    await update.message.reply_text("\n".join(message), parse_mode=None)
+    await message.edit_text("\n".join(message_lines), parse_mode=None)
 
 
 async def complete_existing_project_selection(query, approval: ApprovalRequest, user: User, project_key: str):
     """Validate an existing Scrum project, then resume the paused transcript run."""
-    from backend.tools.jira_client import JiraManager
+    import asyncio
+    from telegram.error import BadRequest
+    
+    try:
+        await query.edit_message_text(f"⏳ Validating Jira project '{project_key}'... This may take a moment.")
+    except BadRequest as e:
+        if "Message is not modified" not in str(e):
+            raise
 
-    jira = JiraManager()
-    validation = jira.validate_scrum_project(project_key)
+    def _validate():
+        from backend.tools.jira_client import JiraManager
+        return JiraManager().validate_scrum_project(project_key)
+
+    validation = await asyncio.to_thread(_validate)
     if not validation.get('valid'):
         problems = validation.get('problems', ['Project is not Scrum-compatible'])
-        await query.edit_message_text(
-            "âŒ Selected project is not compatible with ScrumPilot.\n\n"
-            + "\n".join(f"- {problem}" for problem in problems)
-        )
+        try:
+            await query.edit_message_text(
+                "❌ Selected project is not compatible with ScrumPilot.\n\n"
+                + "\n".join(f"- {problem}" for problem in problems)
+            )
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise
         return
 
     created_keys = await finalize_project_selection(
@@ -945,21 +1024,25 @@ async def complete_existing_project_selection(query, approval: ApprovalRequest, 
     )
 
     success_lines = [
-        f"âœ… Approved by {user.display_name}",
+        f"✅ Approved by {user.display_name}",
         "",
         f"Using Jira Scrum project: {project_key}",
         "",
-        "âœ… Pipeline resumed successfully.",
+        "✅ Pipeline resumed successfully.",
     ]
     if created_keys:
         success_lines.append("")
         success_lines.append("Processed keys:")
         for key in created_keys[:10]:
-            success_lines.append(f"  â€¢ {key}")
+            success_lines.append(f"  • {key}")
         if len(created_keys) > 10:
-            success_lines.append(f"  â€¢ ... and {len(created_keys) - 10} more")
+            success_lines.append(f"  • ... and {len(created_keys) - 10} more")
 
-    await query.edit_message_text("\n".join(success_lines), parse_mode=None)
+    try:
+        await query.edit_message_text("\n".join(success_lines), parse_mode=None)
+    except BadRequest as e:
+        if "Message is not modified" not in str(e):
+            raise
 
 
 async def finalize_project_selection(
@@ -1065,12 +1148,16 @@ async def execute_epic_creation(approval: ApprovalRequest):
     
     try:
         # Create backlog in Jira using the decomposed data
-        result = agent.create_backlog_in_jira(
-            backlog_path=decomposition_file,
-            dry_run=False,
-            resume=True,  # Enable idempotency
-            forced_project_key=selected_project_key,
-        )
+        import asyncio
+        def _create_backlog():
+            return agent.create_backlog_in_jira(
+                backlog_path=decomposition_file,
+                dry_run=False,
+                resume=True,  # Enable idempotency
+                forced_project_key=selected_project_key,
+            )
+            
+        result = await asyncio.to_thread(_create_backlog)
         
         logger.info(f"Jira creation complete:")
         logger.info(f"  Epics created: {result.epics_created}/{result.total_epics}")
@@ -1494,10 +1581,14 @@ async def execute_sprint_planning(approval: ApprovalRequest):
         sprint_plan = SprintPlanningResult(**sprint_plan_data)
         
         # Create sprint in Jira
-        jira_result = pipeline._create_sprint_in_jira(
-            sprint_plan,
-            project_key=selected_project_key,
-        )
+        import asyncio
+        def _create_sprint():
+            return pipeline._create_sprint_in_jira(
+                sprint_plan,
+                project_key=selected_project_key,
+            )
+            
+        jira_result = await asyncio.to_thread(_create_sprint)
         
         logger.info(f"Sprint creation complete:")
         logger.info(f"  Sprint: {jira_result.get('sprint_name')}")

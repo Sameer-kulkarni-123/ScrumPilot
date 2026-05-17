@@ -35,7 +35,7 @@ async def handle_approvals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).first()
         
         if not db_user:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "❌ Your account is not linked.\n\n"
                 "Use /start to link your account."
             )
@@ -51,7 +51,7 @@ async def handle_approvals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).all()
         
         if not approvals:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "✅ No pending approvals!\n\n"
                 "You're all caught up. 🎉"
             )

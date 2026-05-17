@@ -4,7 +4,7 @@
 Handles user account linking.
 """
 import logging
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from backend.db.connection import get_session
@@ -18,6 +18,7 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Handle /start command.
     
     Links Telegram account to ScrumPilot user account.
+    Shows action menu for already-linked users.
     """
     user = update.effective_user
     chat_id = update.effective_chat.id
@@ -31,10 +32,28 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).first()
         
         if existing_user:
+            keyboard = [
+                [
+                    InlineKeyboardButton("🎥 Start Meet Bot", callback_data="start_meet"),
+                    InlineKeyboardButton("📝 Send Transcript", callback_data="send_transcript"),
+                ],
+                [
+                    InlineKeyboardButton("📋 View Approvals", callback_data="view_approvals"),
+                    InlineKeyboardButton("🏃 Sprint Status", callback_data="view_sprint"),
+                ],
+                [
+                    InlineKeyboardButton("❓ Help", callback_data="show_help"),
+                ],
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
             await update.message.reply_text(
                 f"✅ Welcome back, {existing_user.display_name}!\n\n"
-                f"Your account is already linked.\n\n"
-                f"Use /help to see available commands."
+                f"🔹 *Start Meet Bot* — Join a Meet, record, transcribe & update Jira\n"
+                f"🔹 *Send Transcript* — Paste a transcript to detect type & update Jira\n\n"
+                f"What would you like to do?",
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
             )
             return
     

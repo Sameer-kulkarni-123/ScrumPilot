@@ -16,6 +16,7 @@ from backend.telegram.handlers.callback_handler import (
     handle_project_name_input,
     handle_rejection_reason,
 )
+from backend.telegram.handlers.meet_handler import handle_meet_link_input, handle_transcript_input
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -23,7 +24,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Handle text messages based on conversation state.
     """
     # Check conversation state
-    if context.user_data.get('awaiting_email'):
+    if context.user_data.get('awaiting_meet_link'):
+        await handle_meet_link_input(update, context)
+
+    elif context.user_data.get('awaiting_transcript') or \
+         context.user_data.get('awaiting_second_transcript_pm') or \
+         context.user_data.get('awaiting_second_transcript_grooming'):
+        await handle_transcript_input(update, context)
+
+    elif context.user_data.get('awaiting_email'):
         await handle_email_linking(update, context)
 
     elif context.user_data.get('pending_editkey_approval_id'):

@@ -816,7 +816,8 @@ class JiraCreatorAgent:
         # ═══════════════════════════════════════════════════════════════════
         # IDEMPOTENCY: Setup mapping file and load existing mapping
         # ═══════════════════════════════════════════════════════════════════
-        self.mapping_file = Path(backlog_path).parent / (Path(backlog_path).stem + '_mapping.json')
+        mapping_suffix = f"_{forced_project_key}" if forced_project_key else ""
+        self.mapping_file = Path(backlog_path).parent / (Path(backlog_path).stem + f'_mapping{mapping_suffix}.json')
         
         if resume:
             existing_mapping = self.load_existing_mapping(self.mapping_file)
@@ -835,16 +836,16 @@ class JiraCreatorAgent:
             if dry_run:
                 routing = self.resolve_routing(epic_title, epic_description_text)
                 if forced_project_key:
-                    routing = routing.model_copy(
-                        update={
-                            "project_key": forced_project_key,
-                            "project_name": forced_project_key,
-                            "component": None,
-                            "matched_project": True,
-                            "matched_team": False,
-                            "is_triage": False,
-                            "decision_reason": "pm_selected_project",
-                        }
+                    import dataclasses
+                    routing = dataclasses.replace(
+                        routing,
+                        project_key=forced_project_key,
+                        project_name=forced_project_key,
+                        component=None,
+                        matched_project=True,
+                        matched_team=False,
+                        is_triage=False,
+                        decision_reason="pm_selected_project",
                     )
                 print(
                     f"  [DRY RUN] Would create Epic: {epic_title} "
@@ -856,22 +857,30 @@ class JiraCreatorAgent:
             routing = self.resolve_routing(epic_title, epic_description_text)
             epic_project_key = routing.project_key or None
             epic_component = routing.component or None
+            
+            # Override routing if forced project key is provided
             if forced_project_key:
                 epic_project_key = forced_project_key
                 epic_component = None
+                import dataclasses
+                routing = dataclasses.replace(
+                    routing,
+                    project_key=forced_project_key,
+                    project_name=forced_project_key,
+                    component=None,
+                    matched_project=True,
+                    matched_team=False,
+                    is_triage=False,
+                    decision_reason="pm_selected_project",
+                )
 
-            if routing.is_triage:
+            if routing.is_triage and not forced_project_key:
                 logger.warning(
                     f"Epic '{epic_title}' routed to triage project '{routing.project_key}' "
                     f"— no keyword match found"
                 )
 
             # ── Live-Jira guard: skip epics whose target project doesn't exist ──
-            # Checks two sources:
-            #   1. DB registry  — project known to the system
-            #   2. Live Jira    — project actually exists in Jira right now
-            # If either check fails, skip this epic (a project_creation approval
-            # was (or will be) sent to the PM via the preflight check).
             if epic_project_key:
                 project_exists_in_jira = (
                     self._live_jira_keys is None          # unknown → optimistic

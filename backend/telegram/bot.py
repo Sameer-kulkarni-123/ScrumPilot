@@ -32,6 +32,7 @@ from backend.telegram.handlers import (
     sprint_handler,
     callback_handler,
     message_handler,
+    meet_handler,
 )
 from backend.telegram.handlers import admin_handler
 
@@ -89,6 +90,12 @@ class ScrumPilotBot:
         self.application.add_handler(CommandHandler("status",  sprint_handler.handle_status))
         self.application.add_handler(CommandHandler("team",    sprint_handler.handle_team))
         self.application.add_handler(CommandHandler("routing_status", sprint_handler.handle_routing_status))
+
+        # ── Meet bot commands ─────────────────────────────────────────────────
+        self.application.add_handler(CommandHandler("meet",       meet_handler.handle_meet))
+        self.application.add_handler(CommandHandler("meetstop",   meet_handler.handle_meet_stop))
+        self.application.add_handler(CommandHandler("meetstatus", meet_handler.handle_meet_status))
+        self.application.add_handler(CommandHandler("transcript", meet_handler.handle_transcript))
 
         # ── Admin / routing-registry commands ─────────────────────────────────
         self.application.add_handler(CommandHandler("add_project",      admin_handler.handle_add_project))

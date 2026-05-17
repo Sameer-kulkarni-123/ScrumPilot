@@ -110,16 +110,17 @@ class MeetingTypeDetector:
         'pm_backlog': [
             'epic', 'feature', 'roadmap', 'vision', 'strategy',
             'stakeholder', 'customer', 'market', 'priority', 'wsjf',
-            'business value', 'user story', 'acceptance criteria'
+            'business value'
         ],
         'grooming': [
             'story points', 'estimate', 'estimation', 'complexity',
             'acceptance criteria', 'definition of done', 'clarify',
-            'refine', 'groom', 'backlog refinement', 'story', 'task'
+            'refine', 'groom', 'backlog refinement', 'grooming'
         ],
         'sprint_planning': [
-            'sprint', 'capacity', 'velocity', 'commitment', 'sprint goal',
-            'sprint backlog', 'planning', 'iteration', 'assign', 'team capacity'
+            'sprint planning', 'sprint', 'capacity', 'velocity', 'commitment', 'sprint goal',
+            'sprint backlog', 'planning', 'iteration', 'assign', 'team capacity',
+            'pull in', 'sprint scope'
         ],
         'daily_standup': [
             'yesterday', 'today', 'blocker', 'blocked', 'impediment',
@@ -420,9 +421,14 @@ class IntelligentMeetBot:
         # It uses PipelineConfig instead
         pipeline = BacklogPipeline()
         
+        pm_transcript = transcript_file
+        grooming_transcript = 'backend/data/grooming_meetings/example_grooming_transcript.txt'
+        
         result = pipeline.run(
-            transcript_path=transcript_file,
-            create_in_jira=True
+            pm_transcript_path=pm_transcript,
+            grooming_transcript_path=grooming_transcript,
+            create_in_jira=True,
+            dry_run=False
         )
         
         return {

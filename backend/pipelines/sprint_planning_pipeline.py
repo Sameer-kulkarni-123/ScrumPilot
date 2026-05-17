@@ -559,6 +559,12 @@ class SprintPlanningPipeline:
                 project_key=project_key,
             )
             
+            if not sprint_data.get('success') or not sprint_data.get('id'):
+                error_msg = f"Failed to create sprint in Jira: {sprint_data.get('error', 'Unknown error')}"
+                result['errors'].append(error_msg)
+                logger.error(error_msg)
+                raise Exception(error_msg)
+                
             result['sprint_id'] = sprint_data.get('id')
             result['sprint_name'] = sprint_name
             result['sprint_key'] = sprint_data.get('key', sprint_name)

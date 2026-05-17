@@ -18,7 +18,7 @@ async def handle_sprint(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).first()
         
         if not db_user:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "❌ Your account is not linked.\n\nUse /start to link your account."
             )
             return
@@ -29,7 +29,7 @@ async def handle_sprint(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).first()
         
         if not sprint:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "ℹ️ No active sprint found.\n\n"
                 "Sprint planning may not have been completed yet."
             )
@@ -53,7 +53,7 @@ async def handle_sprint(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if sprint.team_capacity_hours:
             message += f"*Team Capacity*: {sprint.team_capacity_hours} hours\n"
         
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.effective_message.reply_text(message, parse_mode='Markdown')
 
 
 async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -66,7 +66,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).first()
         
         if not db_user:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "❌ Your account is not linked.\n\nUse /start to link your account."
             )
             return
@@ -79,7 +79,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).first()
         
         if not active_sprint:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "ℹ️ No active sprint.\n\n"
                 "You don't have any assigned tasks yet."
             )
@@ -96,7 +96,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).all()
         
         if not tasks:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 f"✅ No tasks assigned to you in {active_sprint.sprint_name}.\n\n"
                 f"You're all clear! 🎉"
             )
@@ -118,7 +118,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message += f"   Estimate: {task.estimated_hours}h\n"
             message += "\n"
         
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.effective_message.reply_text(message, parse_mode='Markdown')
 
 
 async def handle_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -131,7 +131,7 @@ async def handle_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).first()
         
         if not db_user:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "❌ Your account is not linked.\n\nUse /start to link your account."
             )
             return
@@ -142,7 +142,7 @@ async def handle_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).all()
         
         if not team_members:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "ℹ️ No team members found with linked Telegram accounts."
             )
             return
@@ -159,7 +159,7 @@ async def handle_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += f"  Telegram: {telegram_username}\n"
             message += f"  Email: {member.email or 'N/A'}\n\n"
         
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.effective_message.reply_text(message, parse_mode='Markdown')
 
 
 async def handle_routing_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -183,7 +183,7 @@ async def handle_routing_status(update: Update, context: ContextTypes.DEFAULT_TY
             User.telegram_user_id == update.effective_user.id
         ).first()
         if not db_user:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "❌ Your account is not linked.\n\nUse /start to link your account."
             )
             return
@@ -222,4 +222,4 @@ async def handle_routing_status(update: Update, context: ContextTypes.DEFAULT_TY
             f"*Pending routing approvals*: {pending}\n\n"
             "Use `/approvals` to review pending routing decisions."
         )
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.effective_message.reply_text(message, parse_mode='Markdown')
