@@ -54,11 +54,23 @@ class DeveloperAssignment(BaseModel):
         description="Total hours assigned to this developer"
     )
 
+    @validator('story_ids', 'task_ids', pre=True)
+    def default_list(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v]
+        return v
+
 
 class SprintCommitment(BaseModel):
     """Stories and tasks committed to the sprint."""
     story_ids: List[str] = Field(
         description="Story IDs pulled into sprint (e.g., SP-123)"
+    )
+    story_names: List[str] = Field(
+        default_factory=list,
+        description="Natural language names or descriptions of the stories committed (e.g., 'credit card payment feature')"
     )
     story_points: Optional[int] = Field(
         default=None,
@@ -69,13 +81,23 @@ class SprintCommitment(BaseModel):
         description="Total estimated hours"
     )
 
+    @validator('story_ids', 'story_names', pre=True)
+    def default_list(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v]
+        return v
+
 
 class TeamCapacity(BaseModel):
     """Team capacity for the sprint."""
-    total_hours: int = Field(
+    total_hours: Optional[int] = Field(
+        default=None,
         description="Total team capacity in hours"
     )
-    team_size: int = Field(
+    team_size: Optional[int] = Field(
+        default=None,
         description="Number of team members"
     )
     velocity_last_sprint: Optional[int] = Field(
@@ -99,7 +121,7 @@ class SprintPlanningResult(BaseModel):
         default=None,
         description="Sprint number if mentioned"
     )
-    sprint_duration_weeks: int = Field(
+    sprint_duration_weeks: Optional[int] = Field(
         default=2,
         description="Sprint duration in weeks (usually 2)"
     )
@@ -139,9 +161,23 @@ class SprintPlanningResult(BaseModel):
         default=None,
         description="Additional notes from the meeting"
     )
+
+    @validator('developer_assignments', 'risks_identified', 'dependencies', pre=True)
+    def default_list(cls, v):
+        if v is None:
+            return []
+        return v
+
+    @validator('sprint_duration_weeks', pre=True)
+    def default_duration(cls, v):
+        if v is None:
+            return 2
+        return v
     
     @validator('sprint_duration_weeks')
     def validate_duration(cls, v):
+        if v is None:
+            return 2
         if v < 1 or v > 4:
             raise ValueError("Sprint duration must be between 1 and 4 weeks")
         return v

@@ -41,11 +41,16 @@ async def handle_approvals(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Get pending approvals assigned to this user
-        approvals = session.query(ApprovalRequest).filter(
-            ApprovalRequest.assigned_to == db_user.id,
+        # Get pending approvals: show all to admins, filter by assigned_to for others
+        is_admin = db_user.role and db_user.role.role_name == 'admin'
+
+        query = session.query(ApprovalRequest).filter(
             ApprovalRequest.status == 'pending'
-        ).order_by(
+        )
+        if not is_admin:
+            query = query.filter(ApprovalRequest.assigned_to == db_user.id)
+
+        approvals = query.order_by(
             ApprovalRequest.priority.desc(),
             ApprovalRequest.created_at.asc()
         ).all()
@@ -146,8 +151,8 @@ async def send_approval_message(update: Update, session, approval: ApprovalReque
         ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Send message (use markdown only for epic/story/sprint, not standup)
-    parse_mode = 'Markdown' if approval.request_type not in ('standup_update',) else None
+    # Send message (use parse_mode = None to avoid Telegram formatting errors)
+    parse_mode = None
     
     await update.effective_message.reply_text(
         message,
