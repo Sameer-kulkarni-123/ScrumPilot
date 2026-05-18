@@ -163,6 +163,18 @@ class JiraCreatorAgent:
         print(f"Loaded decomposed backlog: {epics_count} Epic(s)")
         return self.decomposed_backlog
 
+    def _mapping_path_for_project(self, backlog_path: str) -> Path:
+        """
+        Return a project-specific resume mapping path.
+
+        The same decomposed backlog can be pushed to different Jira projects
+        during setup/testing. Keeping one shared mapping would make a MIN run
+        reuse KAN issue keys and skip actual creation in MIN.
+        """
+        backlog_file = Path(backlog_path)
+        project_key = self.jira.project_key.upper()
+        return backlog_file.parent / f"{backlog_file.stem}_{project_key}_mapping.json"
+
     def load_existing_mapping(self, mapping_path: Path) -> Dict[str, str]:
         """
         Load existing ID mapping from previous run to enable resume.
@@ -181,6 +193,36 @@ class JiraCreatorAgent:
             with open(mapping_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 mapping = data.get('id_mapping', {})
+
+            saved_project_key = data.get('project_key')
+            current_project_key = self.jira.project_key.upper()
+            if saved_project_key and saved_project_key.upper() != current_project_key:
+                logger.warning(
+                    "Ignoring mapping for project %s while running against project %s",
+                    saved_project_key,
+                    current_project_key,
+                )
+                print(
+                    f"Ignoring old mapping for project {saved_project_key}; "
+                    f"starting fresh for {current_project_key}"
+                )
+                return {}
+
+            wrong_project_keys = [
+                jira_key for jira_key in mapping.values()
+                if not jira_key.upper().startswith(f"{current_project_key}-")
+            ]
+            if wrong_project_keys:
+                logger.warning(
+                    "Ignoring mapping because it contains issue keys outside project %s: %s",
+                    current_project_key,
+                    wrong_project_keys[:5],
+                )
+                print(
+                    f"Ignoring old mapping with non-{current_project_key} Jira keys; "
+                    f"starting fresh for {current_project_key}"
+                )
+                return {}
             
             logger.info(f"Loaded existing mapping: {len(mapping)} items already created")
             print(f"Resuming from previous run ({len(mapping)} items already created)")
@@ -204,6 +246,7 @@ class JiraCreatorAgent:
         try:
             with open(self.mapping_file, 'w', encoding='utf-8') as f:
                 json.dump({
+                    'project_key': self.jira.project_key.upper(),
                     'id_mapping': self.creation_result.id_mapping,
                     'last_updated': datetime.now().isoformat(),
                     'resume_point': self.creation_result.resume_point
@@ -509,7 +552,7 @@ class JiraCreatorAgent:
 
     def create_task_in_jira(self, task: Dict, story_key: str) -> JiraTask:
         """
-        Create a Sub-task in Jira linked to a Story.
+        Create a top-level Task in Jira linked to a Story.
         
         Features:
         - Idempotency: Checks if already created
@@ -524,6 +567,16 @@ class JiraCreatorAgent:
         """
         task_id = task.get('task_id', 'unknown')
         task_title = task.get('title', 'Untitled Task')
+        logger.debug("Deferring Jira Task creation until sprint planning: %s (%s)", task_title, task_id)
+        print(f"        Deferring Task until sprint planning: {task_title[:50]}...")
+        return JiraTask(
+            task_id=task_id,
+            jira_key=None,
+            title=task_title,
+            estimated_hours=task.get('estimated_hours', 0),
+            story_points=task.get('story_points'),
+            success=True
+        )
         
         # ═══════════════════════════════════════════════════════════════════
         # IDEMPOTENCY CHECK: Skip if already created (with Jira verification)
@@ -555,8 +608,8 @@ class JiraCreatorAgent:
                 # Remove from mapping and continue with creation
                 del self.creation_result.id_mapping[task_id]
         
-        logger.debug(f"Creating Sub-task in Jira: {task_title} ({task_id})")
-        print(f"        Creating Sub-task: {task_title[:50]}...")
+        logger.debug(f"Creating linked Task in Jira: {task_title} ({task_id})")
+        print(f"        Creating linked Task: {task_title[:50]}...")
 
         # Build Task description
         description = task.get('description', '')
@@ -575,22 +628,28 @@ class JiraCreatorAgent:
 ---
 *Created by ScrumPilot*
 *Task ID*: {task_id}
-*Parent Story*: {story_key}
+*Linked Story*: {story_key}
 """
 
-        # Create Task in Jira with parent link
-        # Note: Using "Task" instead of "Sub-task" because some Jira projects
-        # don't have Sub-task configured. We still link it to the parent Story.
+        # Create a top-level Task so it appears as a sprint board card,
+        # then link it back to the Story for traceability.
         try:
             result = self.jira.create_ticket(
                 summary=task_title,
                 description=task_description,
-                issue_type="Subtask",  # Subtasks are children of Stories (hierarchy level -1)
-                parent_key=story_key,
+                issue_type="Task",
             )
 
             if result.get('success'):
                 jira_key = result.get('key')
+                link_result = self.jira.link_issues(jira_key, story_key)
+                if not link_result.get('success'):
+                    logger.warning(
+                        "Created task %s but could not link it to story %s: %s",
+                        jira_key,
+                        story_key,
+                        link_result.get('error'),
+                    )
                 
                 # ═══════════════════════════════════════════════════════════
                 # SAVE MAPPING IMMEDIATELY for idempotency
@@ -686,7 +745,7 @@ class JiraCreatorAgent:
         # ═══════════════════════════════════════════════════════════════════
         # IDEMPOTENCY: Setup mapping file and load existing mapping
         # ═══════════════════════════════════════════════════════════════════
-        self.mapping_file = Path(backlog_path).parent / (Path(backlog_path).stem + '_mapping.json')
+        self.mapping_file = self._mapping_path_for_project(backlog_path)
         
         if resume:
             existing_mapping = self.load_existing_mapping(self.mapping_file)

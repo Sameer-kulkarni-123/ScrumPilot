@@ -1,65 +1,60 @@
 {
-  "sprint_goal": "Complete the payment gateway integration and get it production-ready",
+  "sprint_goal": "Complete payment gateway integration (production-ready)",
   "sprint_number": 24,
   "sprint_duration_weeks": 2,
-  "start_date": null,
-  "end_date": null,
+  "start_date": "2026-04-14",
+  "end_date": "2026-04-25",
   "team_capacity": {
     "total_hours": 320,
     "team_size": 5,
-    "velocity_last_sprint": 8,
-    "availability_notes": "Bob is on PTO for 3 days"
+    "velocity_last_sprint": 19,
+    "availability_notes": "Sameer Kulkarni is on PTO next week for 3 days"
   },
   "commitment": {
     "story_ids": [
-      "SP-464",
-      "SP-468",
-      "SP-472"
+      "MIN-2",
+      "MIN-6",
+      "MIN-10"
     ],
     "story_points": 21,
-    "estimated_hours": null
+    "estimated_hours": 210
   },
   "developer_assignments": [
     {
-      "developer_name": "Sarah",
+      "developer_name": "Vaibhav Kumar",
       "story_ids": [
-        "SP-464"
+        "MIN-2"
       ],
       "task_ids": [
-        "SP-465",
-        "SP-466",
-        "SP-467"
+        "MIN-3",
+        "MIN-4",
+        "MIN-5"
       ],
       "estimated_hours": 80
     },
     {
-      "developer_name": "Mike",
+      "developer_name": "Sameer Kulkarni",
       "story_ids": [
-        "SP-468"
+        "MIN-6"
       ],
       "task_ids": [
-        "SP-469",
-        "SP-470"
+        "MIN-7",
+        "MIN-8",
+        "MIN-9"
       ],
       "estimated_hours": 80
     },
     {
-      "developer_name": "Alice",
+      "developer_name": "test user",
       "story_ids": [
-        "SP-472"
+        "MIN-10"
       ],
       "task_ids": [
-        "SP-473",
-        "SP-474",
-        "SP-475"
+        "MIN-11",
+        "MIN-12",
+        "MIN-13"
       ],
       "estimated_hours": 50
-    },
-    {
-      "developer_name": "Tom",
-      "story_ids": [],
-      "task_ids": [],
-      "estimated_hours": null
     }
   ],
   "risks_identified": [
@@ -68,7 +63,8 @@
     "Design team hasn't finalized payment form styles"
   ],
   "dependencies": [
-    "DevOps team to set up Stripe webhook endpoints"
+    "DevOps team to set up Stripe webhook endpoints",
+    "Design team to finalize payment form styles"
   ],
-  "notes": null
+  "notes": "Mid-sprint check-in on Wednesday to ensure Stripe webhook endpoints are set up"
 }

@@ -31,6 +31,9 @@ from backend.telegram.handlers import (
     sprint_handler,
     callback_handler,
     message_handler,
+    pipeline_handler,
+    jira_handler,
+    user_admin_handler,
 )
 
 # Configure logging
@@ -63,6 +66,12 @@ class ScrumPilotBot:
         self.application.add_handler(CommandHandler("sprint", sprint_handler.handle_sprint))
         self.application.add_handler(CommandHandler("status", sprint_handler.handle_status))
         self.application.add_handler(CommandHandler("team", sprint_handler.handle_team))
+        self.application.add_handler(CommandHandler("meet", pipeline_handler.handle_meet))
+        self.application.add_handler(CommandHandler("transcript", pipeline_handler.handle_transcript))
+        self.application.add_handler(CommandHandler("jira", jira_handler.handle_jira))
+        self.application.add_handler(CommandHandler("addjira", jira_handler.handle_addjira))
+        self.application.add_handler(CommandHandler("adduser", user_admin_handler.handle_adduser))
+        self.application.add_handler(CommandHandler("updateuser", user_admin_handler.handle_updateuser))
         
         # Register callback query handler (for inline buttons)
         self.application.add_handler(CallbackQueryHandler(callback_handler.handle_callback))

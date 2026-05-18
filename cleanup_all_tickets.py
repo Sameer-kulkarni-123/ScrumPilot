@@ -35,7 +35,7 @@ def cleanup_all():
     # Get all tickets from Jira
     print("\nFetching all tickets from Jira...")
     all_tickets = jira.client.search_issues(
-        f'project = {jira.project_key}',
+        f'project = "{jira.project_key}"',
         maxResults=1000,
         fields='summary,issuetype'
     )

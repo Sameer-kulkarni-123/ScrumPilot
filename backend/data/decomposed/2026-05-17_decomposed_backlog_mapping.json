@@ -1,0 +1,30 @@
+{
+  "id_mapping": {
+    "epic_002": "KAN-111",
+    "story_001": "KAN-112",
+    "task_001": "KAN-113",
+    "task_002": "KAN-114",
+    "task_003": "KAN-115",
+    "story_002": "KAN-116",
+    "task_004": "KAN-117",
+    "task_005": "KAN-118",
+    "task_006": "KAN-119",
+    "story_003": "KAN-120",
+    "task_007": "KAN-121",
+    "task_008": "KAN-122",
+    "task_009": "KAN-123",
+    "epic_001": "KAN-124",
+    "story_004": "KAN-125",
+    "task_010": "KAN-126",
+    "task_011": "KAN-127",
+    "task_012": "KAN-128",
+    "epic_004": "KAN-129",
+    "epic_003": "KAN-130",
+    "story_005": "KAN-131",
+    "task_013": "KAN-132",
+    "task_014": "KAN-133",
+    "task_015": "KAN-134"
+  },
+  "last_updated": "2026-05-17T23:29:09.642687",
+  "resume_point": null
+}

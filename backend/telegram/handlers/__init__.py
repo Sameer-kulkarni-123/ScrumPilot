@@ -11,6 +11,9 @@ from backend.telegram.handlers import (
     sprint_handler,
     callback_handler,
     message_handler,
+    pipeline_handler,
+    jira_handler,
+    user_admin_handler,
 )
 
 __all__ = [
@@ -20,4 +23,7 @@ __all__ = [
     "sprint_handler",
     "callback_handler",
     "message_handler",
+    "pipeline_handler",
+    "jira_handler",
+    "user_admin_handler",
 ]

@@ -25,7 +25,7 @@ def main():
     
     # Run pipeline with example transcript
     result = pipeline.run(
-        transcript_path="backend/data/sprint_planning/example_sprint_planning_transcript.txt",
+        transcript_path="backend/data/sprint_planning/test_names_sprint_planning_transcript.txt",
         create_in_jira=True,  # Will create sprint in Jira after approval
         dry_run=False
     )

@@ -370,6 +370,42 @@ class JiraManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def link_issues(
+        self,
+        inward_issue_key: str,
+        outward_issue_key: str,
+        link_type: str = "Relates",
+    ) -> Dict:
+        """
+        Link two Jira issues without changing their hierarchy.
+
+        This is useful for top-level Task cards that should remain associated
+        with a Story while still appearing independently on a Scrum board.
+        """
+        try:
+            self.client.create_issue_link(
+                type=link_type,
+                inwardIssue=inward_issue_key,
+                outwardIssue=outward_issue_key,
+            )
+            return {
+                "success": True,
+                "message": f"Linked {inward_issue_key} to {outward_issue_key}.",
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_issue_type(self, issue_key: str) -> Dict:
+        """Return the Jira issue type name for an issue key."""
+        try:
+            issue = self.client.issue(issue_key, fields="issuetype")
+            return {
+                "success": True,
+                "issue_type": issue.fields.issuetype.name,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     # ── Status transitions ────────────────────────────────────────────────
 
     def get_transitions(self, ticket_key: str) -> Dict:
@@ -512,6 +548,82 @@ class JiraManager:
 
     # ── Sprint Management ─────────────────────────────────────────────────
 
+    def _find_scrum_board(self, board_id: Optional[int] = None) -> Dict:
+        """Find the Scrum board for the configured Jira project."""
+        if board_id:
+            return {"success": True, "id": board_id, "name": str(board_id)}
+
+        project_key = self.project_key
+
+        boards = self.client.boards(
+            type="scrum",
+            projectKeyOrID=project_key,
+            maxResults=50,
+        )
+        if boards:
+            board = boards[0]
+            return {
+                "success": True,
+                "id": board.id,
+                "name": getattr(board, "name", str(board.id)),
+            }
+
+        project = self.client.project(project_key)
+        project_id = str(getattr(project, "id", ""))
+
+        all_boards = self.client.boards(maxResults=100)
+        matching_boards = []
+        for board in all_boards:
+            raw = getattr(board, "raw", {}) or {}
+            location = raw.get("location") or {}
+            location_key = (
+                location.get("projectKey")
+                or location.get("projectKeyOrId")
+                or location.get("key")
+            )
+            location_id = str(location.get("projectId") or location.get("projectID") or "")
+
+            if location_key == project_key or (project_id and location_id == project_id):
+                matching_boards.append(board)
+
+        if matching_boards:
+            scrum_boards = [
+                board for board in matching_boards
+                if getattr(board, "type", None) == "scrum"
+            ]
+            simple_boards = [
+                board for board in matching_boards
+                if getattr(board, "type", None) == "simple"
+            ]
+            board = (scrum_boards or simple_boards or matching_boards)[0]
+
+            if getattr(board, "type", None) == "simple":
+                try:
+                    self.client.sprints(board.id, state="future,active")
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"Project {project_key} board {board.id} is a simple board, "
+                            f"but Jira did not expose sprint support for it: {e}"
+                        ),
+                    }
+
+            return {
+                "success": True,
+                "id": board.id,
+                "name": getattr(board, "name", str(board.id)),
+            }
+
+        return {
+            "success": False,
+            "error": (
+                f"No Scrum board found for project {project_key}. "
+                "Confirm the project key is correct and that your Jira account can browse "
+                "the project's Scrum board."
+            ),
+        }
+
     def create_sprint(
         self,
         name: str,
@@ -538,12 +650,17 @@ class JiraManager:
         
         try:
             # Get board ID if not provided
-            if not board_id:
-                boards = self.client.boards()
-                if not boards:
-                    return {"success": False, "error": "No boards found in project"}
-                board_id = boards[0].id
-                logger.info(f"Using board ID: {board_id}")
+            board_result = self._find_scrum_board(board_id)
+            if not board_result.get("success"):
+                return board_result
+
+            board_id = board_result["id"]
+            logger.info(
+                "Using Scrum board for project %s: %s (%s)",
+                self.project_key,
+                board_result.get("name"),
+                board_id,
+            )
             
             # Create sprint
             sprint = self.client.create_sprint(
@@ -564,6 +681,36 @@ class JiraManager:
         
         except Exception as e:
             logger.error(f"Failed to create sprint: {e}")
+            return {"success": False, "error": str(e)}
+
+    def start_sprint(
+        self,
+        sprint_id: int,
+        name: Optional[str] = None,
+        goal: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Dict:
+        """Start a Jira sprint so its issues appear on the active sprint board."""
+        self._enforce_rate_limit()
+
+        try:
+            data = self.client.update_sprint(
+                sprint_id,
+                name=name,
+                goal=goal,
+                startDate=start_date,
+                endDate=end_date,
+                state="active",
+            )
+            return {
+                "success": True,
+                "id": sprint_id,
+                "message": f"Sprint {sprint_id} started.",
+                "data": data,
+            }
+        except Exception as e:
+            logger.error(f"Failed to start sprint: {e}")
             return {"success": False, "error": str(e)}
 
     def move_issue_to_sprint(self, issue_key: str, sprint_id: int) -> Dict:

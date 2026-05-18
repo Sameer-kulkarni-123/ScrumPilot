@@ -714,7 +714,7 @@ async def execute_epic_creation(approval: ApprovalRequest):
                     
                     # Process tasks
                     for jira_task in jira_story.tasks:
-                        if not jira_task.success or not jira_task.jira_key:
+                        if not jira_task.success:
                             continue
                         
                         # Find task data from decomposed file
@@ -726,10 +726,19 @@ async def execute_epic_creation(approval: ApprovalRequest):
                             logger.warning(f"Task {jira_task.task_id} not found in decomposed data")
                             continue
                         
-                        # Check if task already exists in database
-                        existing_task = session.query(BacklogTask).filter(
-                            BacklogTask.jira_key == jira_task.jira_key
-                        ).first()
+                        # Check if task already exists in database. Backlog tasks
+                        # may not have Jira keys yet; Jira Task cards are created
+                        # later when the Story is committed to a sprint.
+                        existing_task = None
+                        if jira_task.jira_key:
+                            existing_task = session.query(BacklogTask).filter(
+                                BacklogTask.jira_key == jira_task.jira_key
+                            ).first()
+                        if not existing_task:
+                            existing_task = session.query(BacklogTask).filter(
+                                BacklogTask.story_id == db_story.id,
+                                BacklogTask.title == jira_task.title,
+                            ).first()
                         
                         if existing_task:
                             logger.info(f"Task {jira_task.jira_key} already exists in database, skipping")
@@ -746,14 +755,14 @@ async def execute_epic_creation(approval: ApprovalRequest):
                                 estimated_hours=jira_task.estimated_hours,
                             )
                             
-                            # Update with Jira key
-                            crud.update_task_jira_info(
-                                session=session,
-                                task_id=db_task.id,
-                                jira_key=jira_task.jira_key,
-                                jira_status='To Do',
-                                jira_synced_at=datetime.now(timezone.utc)
-                            )
+                            if jira_task.jira_key:
+                                crud.update_task_jira_info(
+                                    session=session,
+                                    task_id=db_task.id,
+                                    jira_key=jira_task.jira_key,
+                                    jira_status='To Do',
+                                    jira_synced_at=datetime.now(timezone.utc)
+                                )
                             tasks_created += 1
             
             session.commit()
@@ -974,10 +983,17 @@ async def execute_sprint_planning(approval: ApprovalRequest):
         
         # Create sprint in Jira
         jira_result = pipeline._create_sprint_in_jira(sprint_plan)
+        pipeline.persist_sprint_to_db(
+            sprint_plan,
+            jira_result,
+            created_by_user_id=approval.assigned_to,
+        )
         
         logger.info(f"Sprint creation complete:")
         logger.info(f"  Sprint: {jira_result.get('sprint_name')}")
         logger.info(f"  Stories moved: {jira_result.get('stories_moved', 0)}")
+        logger.info(f"  Tasks promoted: {jira_result.get('tasks_promoted', 0)}")
+        logger.info(f"  Tasks moved: {jira_result.get('tasks_moved', 0)}")
         logger.info(f"  Tasks assigned: {jira_result.get('tasks_assigned', 0)}")
         logger.info(f"  Developers: {jira_result.get('developers_assigned', 0)}")
         
@@ -991,6 +1007,10 @@ async def execute_sprint_planning(approval: ApprovalRequest):
         # Add story keys
         for story_id in sprint_plan.commitment.story_ids:
             created_keys.append(story_id)
+
+        # Add visible task cards created/promoted for the sprint board
+        for task_key in jira_result.get('task_key_map', {}).values():
+            created_keys.append(task_key)
         
         if jira_result.get('errors'):
             # Some items failed but continue
@@ -1102,13 +1122,15 @@ async def execute_standup_update(approval: ApprovalRequest):
         affected_keys = []
         
         with get_session() as session:
+            stories_to_check = set()
+
             for action in actions:
                 try:
                     action_type = action.get('action')
                     summary = action.get('summary', '')
                     
                     # Extract ticket key from summary (e.g., "SP-189")
-                    match = re.search(r'(SP-\d+)', summary)
+                    match = re.search(r'([A-Z][A-Z0-9]+-\d+)', summary)
                     if not match:
                         logger.warning(f"No ticket key found in action: {summary}")
                         continue
@@ -1140,11 +1162,12 @@ async def execute_standup_update(approval: ApprovalRequest):
                         if task:
                             task.jira_status = 'Done'
                             task.jira_synced_at = datetime.now(timezone.utc)
+                            stories_to_check.add(task.story_id)
                             logger.info(f"Updated task {jira_key} status to Done in database")
                         db_updates += 1
                     
                     elif action_type == 'update_status':
-                        new_status = action.get('new_status', 'In Progress')
+                        new_status = action.get('status') or action.get('new_status') or 'In Progress'
                         if story:
                             story.jira_status = new_status
                             story.jira_synced_at = datetime.now(timezone.utc)
@@ -1152,6 +1175,8 @@ async def execute_standup_update(approval: ApprovalRequest):
                         if task:
                             task.jira_status = new_status
                             task.jira_synced_at = datetime.now(timezone.utc)
+                            if new_status.lower() == 'done':
+                                stories_to_check.add(task.story_id)
                             logger.info(f"Updated task {jira_key} status to {new_status} in database")
                         db_updates += 1
                     
@@ -1179,6 +1204,40 @@ async def execute_standup_update(approval: ApprovalRequest):
                     logger.error(f"Failed to update database for action {action}: {e}")
                     db_errors += 1
                     # Continue with other actions
+
+            for story_id in stories_to_check:
+                story = session.query(Story).filter(Story.id == story_id).first()
+                if not story or not story.jira_key:
+                    continue
+
+                tasks = session.query(BacklogTask).filter(
+                    BacklogTask.story_id == story_id,
+                    BacklogTask.jira_key.isnot(None),
+                ).all()
+                if not tasks:
+                    continue
+
+                all_done = all((task.jira_status or '').lower() == 'done' for task in tasks)
+                if not all_done:
+                    continue
+
+                jira_done = jira_agent.jira.update_ticket_status(story.jira_key, "Done")
+                if jira_done.get('success'):
+                    story.jira_status = 'Done'
+                    story.jira_synced_at = datetime.now(timezone.utc)
+                    affected_keys.append(story.jira_key)
+                    db_updates += 1
+                    logger.info(
+                        "All linked tasks for story %s are Done; moved story to Done",
+                        story.jira_key,
+                    )
+                else:
+                    db_errors += 1
+                    logger.warning(
+                        "All linked tasks for story %s are Done, but Jira transition failed: %s",
+                        story.jira_key,
+                        jira_done.get('error'),
+                    )
             
             # Commit all database updates
             session.commit()
