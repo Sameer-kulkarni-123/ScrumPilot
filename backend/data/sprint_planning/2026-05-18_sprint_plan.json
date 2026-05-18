@@ -1,70 +1,66 @@
 {
-  "sprint_goal": "Complete payment gateway integration (production-ready)",
-  "sprint_number": 24,
+  "sprint_goal": "Complete payment gateway integration for card payments, subscriptions, and payment notifications",
+  "sprint_number": 1,
   "sprint_duration_weeks": 2,
-  "start_date": "2026-04-14",
-  "end_date": "2026-04-25",
+  "start_date": "2026-05-20",
+  "end_date": "2026-06-02",
   "team_capacity": {
-    "total_hours": 320,
-    "team_size": 5,
+    "total_hours": 94,
+    "team_size": 3,
     "velocity_last_sprint": 19,
-    "availability_notes": "Sameer Kulkarni is on PTO next week for 3 days"
+    "availability_notes": null
   },
   "commitment": {
     "story_ids": [
-      "MIN-219",
-      "MIN-220",
-      "MIN-221"
+      "MAIN-2",
+      "MAIN-3",
+      "MAIN-4"
     ],
-    "story_points": 21,
-    "estimated_hours": 210
+    "story_points": null,
+    "estimated_hours": null
   },
   "developer_assignments": [
     {
-      "developer_name": "Vaibhav Kumar",
+      "developer_name": "Sameer",
       "story_ids": [
-        "MIN-219"
+        "MAIN-2",
+        "MAIN-4"
       ],
       "task_ids": [
-        "DBTASK-202",
-        "DBTASK-203",
-        "DBTASK-204"
+        "DBTASK-112",
+        "DBTASK-118"
       ],
-      "estimated_hours": 80
+      "estimated_hours": 32
     },
     {
-      "developer_name": "Sameer Kulkarni",
+      "developer_name": "Sujay",
       "story_ids": [
-        "MIN-220"
+        "MAIN-2",
+        "MAIN-4"
       ],
       "task_ids": [
-        "DBTASK-205",
-        "DBTASK-206",
-        "DBTASK-207"
+        "DBTASK-113",
+        "DBTASK-119"
       ],
-      "estimated_hours": 80
+      "estimated_hours": 32
     },
     {
-      "developer_name": "test user",
+      "developer_name": "Vanshaj",
       "story_ids": [
-        "MIN-221"
+        "MAIN-3",
+        "MAIN-4"
       ],
       "task_ids": [
-        "DBTASK-208",
-        "DBTASK-209",
-        "DBTASK-210"
+        "DBTASK-115",
+        "DBTASK-120"
       ],
-      "estimated_hours": 50
+      "estimated_hours": 30
     }
   ],
   "risks_identified": [
-    "Dependency on DevOps team to set up Stripe webhook endpoints",
-    "Stripe subscription API quirks around prorated refunds",
-    "Design team hasn't finalized payment form styles"
+    "Stripe webhook testing",
+    "Subscription cancellation edge cases"
   ],
-  "dependencies": [
-    "DevOps team setting up Stripe webhook endpoints",
-    "Design team finalizing payment form styles"
-  ],
-  "notes": "Mid-sprint check-in scheduled for Wednesday to ensure Stripe webhook endpoints are set up"
+  "dependencies": [],
+  "notes": null
 }

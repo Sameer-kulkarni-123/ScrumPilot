@@ -304,9 +304,13 @@ class SprintPlanningPipeline:
                 # Stories in sprint have entries in sprint_stories table
                 stories_in_sprint = session.query(SprintStory.story_id).distinct()
                 
+                import os
+                project_key = os.getenv("JIRA_PROJECT_KEY", "")
+                
                 stories = session.query(Story).filter(
                     ~Story.id.in_(stories_in_sprint),
-                    Story.jira_key.isnot(None)
+                    Story.jira_key.isnot(None),
+                    Story.jira_key.like(f"{project_key}-%")
                 ).all()
                 
                 logger.info(f"Found {len(stories)} stories in backlog")
