@@ -121,6 +121,11 @@ async def _run_meet_pipeline(
         result = await bot.run(
             meet_link=meet_link,
             force_type=force_type,
+            speaker_identifier=lambda speakers: _collect_speaker_names(
+                chat_id,
+                context,
+                speakers,
+            ),
         )
         status = result.status
         approval_id = result.approval_id
@@ -131,10 +136,102 @@ async def _run_meet_pipeline(
         await context.bot.send_message(chat_id=chat_id, text=message)
     except Exception as exc:
         logger.exception("Meet pipeline failed")
+        context.user_data.pop("speaker_identification", None)
+        context.user_data["awaiting_speaker_name"] = False
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"Meet pipeline failed: {exc}",
         )
+
+
+async def _collect_speaker_names(
+    chat_id: int,
+    context: ContextTypes.DEFAULT_TYPE,
+    speakers: list,
+) -> dict[str, str]:
+    """Ask the Telegram user to identify diarized speakers, one sample at a time."""
+    if not speakers:
+        return {}
+
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    context.user_data["awaiting_speaker_name"] = True
+    context.user_data["speaker_identification"] = {
+        "speakers": speakers,
+        "index": 0,
+        "names": {},
+        "future": future,
+        "chat_id": chat_id,
+    }
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            "I found new speakers in the recording. I will send a short audio sample "
+            "for each one. Reply with the correct name."
+        ),
+    )
+    await _send_current_speaker_sample(context)
+    return await future
+
+
+async def _send_current_speaker_sample(context: ContextTypes.DEFAULT_TYPE) -> None:
+    state = context.user_data.get("speaker_identification")
+    if not state:
+        return
+
+    speakers = state["speakers"]
+    index = state["index"]
+    speaker = speakers[index]
+    chat_id = state["chat_id"]
+
+    caption = (
+        f"Speaker {index + 1}/{len(speakers)}: {speaker.speaker_id}\n"
+        "Reply with this person's name, or type skip to keep the generic label."
+    )
+    if not speaker.sample_path:
+        await context.bot.send_message(chat_id=chat_id, text=caption)
+        return
+
+    with open(speaker.sample_path, "rb") as audio:
+        await context.bot.send_audio(chat_id=chat_id, audio=audio, caption=caption)
+
+
+async def handle_speaker_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Collect speaker names for a paused /meet diarization run."""
+    state = context.user_data.get("speaker_identification")
+    if not state:
+        context.user_data["awaiting_speaker_name"] = False
+        return
+
+    name = update.message.text.strip()
+    if not name:
+        await update.message.reply_text("Please reply with a name for this speaker.")
+        return
+
+    speakers = state["speakers"]
+    index = state["index"]
+    speaker = speakers[index]
+    display_name = speaker.speaker_id if name.lower() in {"skip", "unknown"} else name
+    state["names"][speaker.speaker_id] = display_name
+    state["index"] += 1
+
+    if state["index"] < len(speakers):
+        await update.message.reply_text(f"Got it: {speaker.speaker_id} is {display_name}.")
+        await _send_current_speaker_sample(context)
+        return
+
+    future = state["future"]
+    names = dict(state["names"])
+    context.user_data.pop("speaker_identification", None)
+    context.user_data["awaiting_speaker_name"] = False
+
+    if not future.done():
+        future.set_result(names)
+
+    await update.message.reply_text(
+        "Thanks. I have the speaker names now and will continue the meeting pipeline."
+    )
 
 
 async def handle_transcript(update: Update, context: ContextTypes.DEFAULT_TYPE):
