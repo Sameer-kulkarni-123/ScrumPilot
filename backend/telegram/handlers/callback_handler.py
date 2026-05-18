@@ -137,7 +137,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Check if user is assigned to this approval (admins bypass check)
-        is_admin = db_user.role and db_user.role.role_name == 'admin'
+        is_admin = db_user.role and db_user.role.role_name.lower() in {'admin', 'product_owner'}
         if approval.assigned_to != db_user.id and not is_admin:
             await query.edit_message_text(
                 "❌ You are not assigned to this approval request"
@@ -777,14 +777,14 @@ async def handle_project_selection_callback(
     parts = callback_data.split('_')
 
     if len(parts) < 3:
-        await query.edit_message_text("âŒ Invalid project selection action")
+        await query.edit_message_text("❌ Invalid project selection action")
         return
 
     action = parts[1]
     try:
         approval_id = int(parts[2])
     except ValueError:
-        await query.edit_message_text("âŒ Invalid approval ID")
+        await query.edit_message_text("❌ Invalid approval ID")
         return
 
     with get_session() as session:
@@ -792,24 +792,24 @@ async def handle_project_selection_callback(
             User.telegram_user_id == user.id
         ).first()
         if not db_user:
-            await query.edit_message_text("âŒ Your account is not linked.")
+            await query.edit_message_text("❌ Your account is not linked.")
             return
 
         approval = session.query(ApprovalRequest).filter(
             ApprovalRequest.approval_id == approval_id
         ).first()
         if not approval:
-            await query.edit_message_text("âŒ Approval request not found")
+            await query.edit_message_text("❌ Approval request not found")
             return
 
-        is_admin = db_user.role and db_user.role.role_name == 'admin'
+        is_admin = db_user.role and db_user.role.role_name.lower() in {'admin', 'product_owner'}
         if approval.assigned_to != db_user.id and not is_admin:
             await query.edit_message_text("❌ You are not assigned to this approval request")
             return
 
         if approval.status != 'pending':
             await query.edit_message_text(
-                f"â„¹ï¸ This approval has already been {approval.status}"
+                f"ℹ️ This approval has already been {approval.status}"
             )
             return
 
@@ -990,16 +990,16 @@ async def handle_project_key_input(update: Update, context: ContextTypes.DEFAULT
                 if len(created_keys) > 10:
                     message_lines.append(f"  • ... and {len(created_keys) - 10} more")
             elif isinstance(created_keys, str):
-                message_lines.append(f"```\n{created_keys}\n```")
+                message_lines.append(f"{created_keys}")
 
         await message.edit_text("\n".join(message_lines), parse_mode=None)
     except Exception as e:
         logger.error(f"Execution failed after new project creation: {e}", exc_info=True)
         await message.edit_text(
-            f"❌ *Execution Failed*\n\n"
+            f"❌ Execution Failed\n\n"
             f"Error: {str(e)}\n\n"
-            f"The project `{created_key}` was created, but the pipeline execution failed.",
-            parse_mode="Markdown"
+            f"The project {created_key} was created, but the pipeline execution failed.",
+            parse_mode=None
         )
 
 
@@ -1066,7 +1066,7 @@ async def complete_existing_project_selection(query, approval: ApprovalRequest, 
                 if len(created_keys) > 10:
                     success_lines.append(f"  • ... and {len(created_keys) - 10} more")
             elif isinstance(created_keys, str):
-                success_lines.append(f"```\n{created_keys}\n```")
+                success_lines.append(f"{created_keys}")
 
         try:
             await query.edit_message_text("\n".join(success_lines), parse_mode=None)
@@ -1077,10 +1077,10 @@ async def complete_existing_project_selection(query, approval: ApprovalRequest, 
         logger.error(f"Execution failed after project selection: {e}", exc_info=True)
         try:
             await query.edit_message_text(
-                f"❌ *Execution Failed*\n\n"
+                f"❌ Execution Failed\n\n"
                 f"Error: {str(e)}\n\n"
-                f"The project `{project_key}` was selected, but the pipeline execution failed.",
-                parse_mode="Markdown"
+                f"The project {project_key} was selected, but the pipeline execution failed.",
+                parse_mode=None
             )
         except BadRequest as edit_e:
             if "Message is not modified" not in str(edit_e):

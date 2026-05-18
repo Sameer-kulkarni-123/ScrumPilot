@@ -42,7 +42,7 @@ async def handle_approvals(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Get pending approvals: show all to admins, filter by assigned_to for others
-        is_admin = db_user.role and db_user.role.role_name == 'admin'
+        is_admin = db_user.role and db_user.role.role_name.lower() in {'admin', 'product_owner'}
 
         query = session.query(ApprovalRequest).filter(
             ApprovalRequest.status == 'pending'

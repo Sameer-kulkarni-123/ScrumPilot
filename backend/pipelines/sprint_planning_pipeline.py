@@ -597,7 +597,6 @@ class SprintPlanningPipeline:
             if stories_to_move:
                 print(f"  Moving {len(stories_to_move)} stories to sprint...")
                 
-                import re
                 for item in stories_to_move:
                     try:
                         real_issue_key = None
@@ -627,7 +626,7 @@ class SprintPlanningPipeline:
                             result['moved_story_keys'].append(real_issue_key)
                             print(f"    Moved: {real_issue_key} (from '{item}')")
                         else:
-                            error_msg = f"Failed to move {real_issue_key}: {move_res.get('error')}"
+                            error_msg = f"Failed to move {real_issue_key}: {move_res.get('error', 'Unknown error')}"
                             result['errors'].append(error_msg)
                             logger.error(error_msg)
                     except Exception as e:
