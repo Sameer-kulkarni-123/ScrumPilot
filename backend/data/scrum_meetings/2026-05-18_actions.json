@@ -1,54 +1,54 @@
 [
   {
     "action": "complete_task",
-    "summary": "MIN-238",
-    "description": "Setup Stripe payment gateway API",
-    "assignee": "Vaibhav Kumar",
-    "status": "Done"
+    "summary": "SP-465",
+    "description": "Stripe payment gateway API integration"
   },
   {
     "action": "update_status",
-    "summary": "MIN-239",
-    "description": "Implement credit card payment form and validation",
-    "assignee": "Vaibhav Kumar",
+    "summary": "SP-466",
+    "description": "Payment form integration",
     "status": "In Progress"
   },
   {
     "action": "update_status",
-    "summary": "MIN-241",
-    "description": "Implement subscription plan management",
-    "assignee": "Sameer Kulkarni",
+    "summary": "SP-467",
+    "description": "Payment validation and error handling",
     "status": "In Progress"
   },
   {
     "action": "update_status",
-    "summary": "MIN-243",
-    "description": "Integrate subscription webhooks for payment events",
-    "assignee": "Sameer Kulkarni",
-    "status": "To Do"
-  },
-  {
-    "action": "update_status",
-    "summary": "MIN-244",
-    "description": "Develop payment event handling and logging",
-    "assignee": "test user",
+    "summary": "SP-469",
+    "description": "Subscription management API integration",
     "status": "In Progress"
   },
   {
     "action": "update_status",
-    "summary": "MIN-240",
-    "description": "Integrate payment processing with order management",
-    "assignee": "Vaibhav Kumar",
+    "summary": "SP-470",
+    "description": "Subscription cancellation handling",
+    "status": "In Progress"
+  },
+  {
+    "action": "assign_task",
+    "summary": "SP-467",
+    "description": "Payment error handling",
+    "assignee": "Sujay"
+  },
+  {
+    "action": "assign_task",
+    "summary": "SP-471",
+    "description": "Notification testing",
+    "assignee": "Vanshaj"
+  },
+  {
+    "action": "update_status",
+    "summary": "SP-473",
+    "description": "Stripe webhook integration",
     "status": "In Progress"
   },
   {
     "action": "add_comment",
-    "summary": "MIN-241",
-    "comment": "Needs Stripe API keys for subscription testing"
-  },
-  {
-    "action": "add_comment",
-    "summary": "MIN-240",
-    "comment": "Waiting on UX copy for error messages"
+    "summary": "SP-468",
+    "comment": "Cancelled subscriptions should remain active until the billing period ends, then move to cancelled status"
   }
 ]

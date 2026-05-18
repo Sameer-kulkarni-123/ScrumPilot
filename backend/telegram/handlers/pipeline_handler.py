@@ -115,17 +115,15 @@ async def _run_meet_pipeline(
     force_type: Optional[str],
 ) -> None:
     try:
-        from backend.pipelines.complete_meet_bot import complete_meet_bot_workflow
+        from backend.pipelines.intelligent_meet_bot import IntelligentMeetBot
 
-        result = await complete_meet_bot_workflow(
+        bot = IntelligentMeetBot()
+        result = await bot.run(
             meet_link=meet_link,
             force_type=force_type,
         )
-        status = result.get("status", "unknown") if isinstance(result, dict) else "completed"
-        approval_id = None
-        pipeline_result = result.get("pipeline_result", {}) if isinstance(result, dict) else {}
-        if isinstance(pipeline_result, dict):
-            approval_id = pipeline_result.get("approval_id")
+        status = result.status
+        approval_id = result.approval_id
 
         message = f"Meet pipeline finished with status: {status}."
         if approval_id:
@@ -192,34 +190,33 @@ async def _run_transcript_pipeline(
     meeting_type: str,
 ) -> None:
     try:
-        from run_complete_meet_bot import complete_meet_bot_from_transcript
+        from backend.pipelines.intelligent_meet_bot import IntelligentMeetBot
 
         force_type = None if meeting_type == "auto" else meeting_type
         transcript_path = _save_transcript(transcript, meeting_type)
-        result = await asyncio.to_thread(
-            lambda: complete_meet_bot_from_transcript(
-                transcript=transcript,
-                force_type=force_type,
-                transcript_file=str(transcript_path),
-            )
+        bot = IntelligentMeetBot()
+        result = await bot.run_from_transcript(
+            transcript_text=transcript,
+            transcript_file=str(transcript_path),
+            force_type=force_type,
         )
 
-        if result.get("status") != "success":
+        if result.status != "completed":
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"Transcript pipeline failed: {result.get('error', 'unknown error')}",
+                text=f"Transcript pipeline failed: {result.errors}",
             )
             return
 
-        pipeline_result = result.get("pipeline_result", {})
-        pipeline = pipeline_result.get("pipeline", result.get("detected_type", "unknown"))
-        approval_id = pipeline_result.get("approval_id")
+        pipeline_result = result.pipeline_result or {}
+        pipeline = pipeline_result.get("pipeline", result.detected_type or "unknown")
+        approval_id = result.approval_id
 
         summary = (
             "Transcript complete-bot pipeline submitted.\n"
-            f"Detected type: {result.get('detected_type')}\n"
+            f"Detected type: {result.detected_type}\n"
             f"Pipeline: {pipeline}\n"
-            f"Status: {pipeline_result.get('status')}"
+            f"Status: {pipeline_result.get('status', result.status)}"
         )
         if approval_id:
             summary += f"\nApproval ID: #{approval_id}"

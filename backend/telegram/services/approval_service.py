@@ -210,23 +210,35 @@ class ApprovalService:
         """
         with get_session() as session:
             from backend.db.models import Role
-            
+
             pm_role = session.query(Role).filter(
                 Role.role_name == 'product_owner'
             ).first()
-            
+
             if not pm_role:
                 logger.warning("No product_owner role found")
                 return None
-            
+
+            # Prefer a PM who has Telegram linked so notifications reach them, ordered by ID ascending to prioritize primary PM (Sam)
             pm_user = session.query(User).filter(
-                User.role_id == pm_role.role_id
-            ).first()
-            
+                User.role_id == pm_role.role_id,
+                User.telegram_user_id.isnot(None),
+            ).order_by(User.id.asc()).first()
+
+            if not pm_user:
+                # Fallback: any product_owner (notification will be skipped gracefully)
+                pm_user = session.query(User).filter(
+                    User.role_id == pm_role.role_id
+                ).order_by(User.id.asc()).first()
+
             if not pm_user:
                 logger.warning("No user with product_owner role found")
                 return None
-            
+
+            logger.info(
+                f"Resolved PM for approval: {pm_user.display_name} "
+                f"(telegram_linked={pm_user.telegram_user_id is not None})"
+            )
             return pm_user.id
 
 

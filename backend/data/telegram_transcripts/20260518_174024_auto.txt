@@ -1,0 +1,27 @@
+Vaibhav: Good morning team. This is our sprint planning meeting for Sprint 1. The sprint goal is to complete the payment gateway integration so that customers can make card payments, manage subscriptions, and receive payment receipts.
+
+Vaibhav: For this sprint, I want us to commit to the payment gateway stories from the product backlog. The first story is: As a customer, I want to make credit card payments, so that I can purchase products and services. The second story is: As a customer, I want to manage my subscriptions, so that I can update or cancel my recurring payments. The third story is: As a system administrator, I want to receive payment event notifications and generate receipts, so that payment activity is auditable.
+
+Sameer: That sounds good. For the credit card payments story, I can take the Stripe payment gateway API integration and the payment form work.
+
+Sujay: I can take the validation and error handling work for the credit card payment flow. I can also help with testing the payment processing scenarios.
+
+Vanshaj: I will take subscription management. I can work on the subscription API integration, subscription update flow, and cancellation handling.
+
+Vaibhav: Great. For the payment notifications story, Sameer can take webhook integration, Sujay can take receipt generation, and Vanshaj can take notification testing.
+
+Sameer: My capacity for this sprint is around 32 hours.
+
+Sujay: My capacity is also around 32 hours.
+
+Vanshaj: I have around 30 hours available.
+
+Vaibhav: Good. Total team capacity is around 94 hours. Let us keep the sprint duration to two weeks. Sprint start date is May 20, 2026, and sprint end date is June 2, 2026.
+
+Sameer: Any major risks?
+
+Sujay: The only risk is Stripe webhook testing, because local testing might need a tunnel or test environment.
+
+Vanshaj: Subscription cancellation edge cases may need clarification, but I think we can handle that during implementation.
+
+Vaibhav: Noted. The sprint commitment is the three payment gateway stories. The sprint goal is complete payment gateway integration for card payments, subscriptions, and payment notifications. Let us submit this sprint plan for approval.

@@ -1,0 +1,27 @@
+{
+  "project_key": "MAIN",
+  "id_mapping": {
+    "epic_002": "MAIN-1",
+    "epic_002_story_001": "MAIN-2",
+    "epic_002_story_002": "MAIN-3",
+    "epic_002_story_003": "MAIN-4",
+    "epic_001": "MAIN-5",
+    "epic_001_story_001": "MAIN-6",
+    "epic_001_story_002": "MAIN-7",
+    "epic_001_story_003": "MAIN-8",
+    "epic_001_story_004": "MAIN-9",
+    "epic_004": "MAIN-10",
+    "epic_004_story_001": "MAIN-11",
+    "epic_004_story_002": "MAIN-12",
+    "epic_004_story_003": "MAIN-13",
+    "epic_004_story_004": "MAIN-14",
+    "epic_003": "MAIN-15",
+    "epic_003_story_001": "MAIN-16",
+    "epic_003_story_002": "MAIN-17",
+    "epic_003_story_003": "MAIN-18",
+    "epic_003_story_004": "MAIN-19",
+    "epic_003_story_005": "MAIN-20"
+  },
+  "last_updated": "2026-05-18T17:37:15.296952",
+  "resume_point": null
+}

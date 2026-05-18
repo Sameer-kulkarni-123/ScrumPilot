@@ -1,0 +1,17 @@
+Vaibhav: Good morning everyone. This is our daily standup for Sprint 1. Let us go through yesterday, today, and blockers.
+
+Sameer: Yesterday I completed the Stripe payment gateway API integration. I connected the backend payment service to Stripe test mode and verified that payment intents are being created correctly. Today I will work on the payment form integration and connect it to the backend API. I do not have any blockers.
+
+Sujay: Yesterday I started the payment validation and error handling work. The basic validation is in progress, and I added checks for missing card details and failed payment responses. Today I will continue error handling and add tests for declined cards and invalid payment methods. No blockers right now.
+
+Vanshaj: Yesterday I started the subscription management API integration. The subscription create and update flow is in progress. Today I will work on cancellation handling and account status updates. I have one blocker: I need confirmation on whether cancelled subscriptions should stay active until the billing period ends.
+
+Vaibhav: Good point. For now, cancelled subscriptions should remain active until the billing period ends, then move to cancelled status.
+
+Sameer: Also, I started looking at Stripe webhooks. The webhook integration is in progress, but I need to configure the test webhook endpoint.
+
+Sujay: Receipt generation is not started yet. I can pick that up after payment error handling is done.
+
+Vanshaj: Notification testing is not started yet. I will take it after cancellation handling.
+
+Vaibhav: Summary: Stripe payment gateway API integration is done. Payment form integration is in progress. Payment validation and error handling is in progress. Subscription management API integration is in progress. Subscription cancellation handling is in progress. Stripe webhook integration is in progress. Receipt generation and notification testing are still to do.

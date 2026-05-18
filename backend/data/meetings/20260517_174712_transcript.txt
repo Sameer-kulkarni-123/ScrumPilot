@@ -1,0 +1,50 @@
+Daily Standup - Sprint 24, Day 2
+Date: April 15, 2026
+Duration: 15 minutes
+
+Attendees:
+- Sarah (Tech Lead)
+- Mike (Senior Developer)
+- Alice (Developer)
+- Tom (Developer)
+- Lisa (Scrum Master)
+
+===== STANDUP START =====
+
+Lisa (Scrum Master): Good morning team! Let's do our daily standup. Tom, you want to start?
+
+Tom: Sure! Yesterday I finished setting up the Stripe payment gateway API. It's done and ready for review. Today I'm starting work on implementing the credit card payment form with validation. No blockers.
+
+Lisa: Great! Mike, you're up.
+
+Mike: Yesterday I worked on the subscription management UI. I'm about 80% done with it. Today I'll continue working on the subscription UI and hopefully finish it. Then I'll start integrating the Stripe subscription API for handling updates and cancellations. One blocker though - I need the Stripe API keys from DevOps before I can test the subscription flow.
+
+Lisa: Noted. I'll follow up on the API keys. Alice?
+
+Alice: Yesterday I started the payment event processing and notification feature. I got the webhook handler set up. Today I'm continuing on the event processing, moving it to In Progress. I also need to test the Stripe webhook integration. No blockers yet.
+
+Lisa: Perfect. Sarah?
+
+Sarah: I'm working on the payment processing and error handling. Yesterday I completed the payment form validation. Today I'm implementing the error handling logic for failed payments. Still in progress. One thing - I'm waiting on the error message copy from the UX team, but I can use placeholder text for now.
+
+Lisa: Okay, I'll check with UX on that. Any other blockers or concerns?
+
+Tom: Just to confirm - I completed the Stripe gateway API setup yesterday, so that should be marked as Done.
+
+Lisa: Got it. Anything else?
+
+Mike: Nope, we're good.
+
+Lisa: Alright team, let's keep the momentum going. Thanks everyone!
+
+===== STANDUP END =====
+
+Summary of Actions:
+- Stripe payment gateway API setup: Completed by Tom → Move to Done
+- Credit card payment form and validation: Started by Tom → Move to In Progress
+- Subscription management UI: Continuing by Mike → Keep In Progress
+- Stripe subscription API integration: Will start by Mike → Keep To Do
+- Payment event processing and notification: Started by Alice → Move to In Progress
+- Payment processing and error handling: Continuing by Sarah → Keep In Progress
+- Blocker: Stripe API keys needed for subscription testing
+- Blocker: UX copy needed for error messages

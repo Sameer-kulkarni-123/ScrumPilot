@@ -389,7 +389,79 @@ class IntelligentMeetBot:
         """Load transcript from file."""
         with open(transcript_file, 'r', encoding='utf-8') as f:
             return f.read()
-    
+
+    async def run_from_transcript(
+        self,
+        transcript_text: str,
+        transcript_file: str,
+        force_type: Optional[MeetingType] = None,
+    ) -> MeetBotResult:
+        """
+        Run the detect → pipeline phases from a pre-written transcript (no Meet join).
+
+        Used by the /transcript Telegram command so users can paste a transcript
+        without needing an active Google Meet session.
+
+        Args:
+            transcript_text: The full transcript as a string.
+            transcript_file: Path where the transcript has already been saved.
+            force_type: Force a specific meeting type (skip auto-detection).
+
+        Returns:
+            MeetBotResult with status and approval_id populated.
+        """
+        import asyncio as _asyncio
+
+        bot_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+        result = MeetBotResult(
+            bot_id=bot_id,
+            start_time=datetime.now().isoformat(),
+            status='in_progress',
+            meet_link='transcript_only',
+            transcript_file=transcript_file,
+            transcript_length=len(transcript_text),
+        )
+
+        try:
+            # Detect meeting type
+            if force_type:
+                result.detected_type = force_type
+                result.detection_confidence = 1.0
+                logger.info(f"Using forced meeting type: {force_type}")
+            else:
+                detection = self.detector.detect(transcript_text)
+                result.detected_type = detection.meeting_type
+                result.detection_confidence = detection.confidence
+                logger.info(
+                    f"Detected meeting type: {detection.meeting_type} "
+                    f"(confidence={detection.confidence:.2f})"
+                )
+                if detection.meeting_type == 'unknown':
+                    result.status = 'completed'
+                    result.end_time = datetime.now().isoformat()
+                    return result
+
+            # Trigger appropriate pipeline directly since this is an async method
+            pipeline_result = await self._trigger_pipeline(
+                meeting_type=result.detected_type,
+                transcript_file=transcript_file,
+            )
+
+            result.pipeline_triggered = result.detected_type
+            result.pipeline_result = pipeline_result
+            result.approval_id = pipeline_result.get('approval_id')
+            result.status = 'completed'
+            result.end_time = datetime.now().isoformat()
+            return result
+
+        except Exception as e:
+            logger.error(f"run_from_transcript failed: {e}", exc_info=True)
+            result.status = 'failed'
+            result.errors.append(str(e))
+            result.end_time = datetime.now().isoformat()
+            raise
+
+
     async def _trigger_pipeline(
         self,
         meeting_type: MeetingType,
