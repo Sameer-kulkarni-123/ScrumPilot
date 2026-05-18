@@ -1,54 +1,59 @@
 [
   {
     "action": "complete_task",
-    "summary": "SP-465",
-    "description": "Stripe payment gateway API integration"
+    "summary": "MAIN-50",
+    "description": "Stripe payment gateway API integration",
+    "assignee": "Sameer",
+    "status": "Done"
   },
   {
     "action": "update_status",
-    "summary": "SP-466",
+    "summary": "MAIN-51",
     "description": "Payment form integration",
+    "assignee": "Sameer",
     "status": "In Progress"
   },
   {
     "action": "update_status",
-    "summary": "SP-467",
+    "summary": "MAIN-52",
     "description": "Payment validation and error handling",
+    "assignee": "Sujay",
     "status": "In Progress"
   },
   {
     "action": "update_status",
-    "summary": "SP-469",
+    "summary": "MAIN-53",
     "description": "Subscription management API integration",
+    "assignee": "Vanshaj",
     "status": "In Progress"
   },
   {
     "action": "update_status",
-    "summary": "SP-470",
+    "summary": "MAIN-55",
     "description": "Subscription cancellation handling",
+    "assignee": "Vanshaj",
+    "status": "In Progress"
+  },
+  {
+    "action": "update_status",
+    "summary": "MAIN-56",
+    "description": "Stripe webhook integration",
+    "assignee": "Sameer",
     "status": "In Progress"
   },
   {
     "action": "assign_task",
-    "summary": "SP-467",
-    "description": "Payment error handling",
+    "summary": "Receipt generation",
     "assignee": "Sujay"
   },
   {
     "action": "assign_task",
-    "summary": "SP-471",
-    "description": "Notification testing",
+    "summary": "Notification testing",
     "assignee": "Vanshaj"
   },
   {
-    "action": "update_status",
-    "summary": "SP-473",
-    "description": "Stripe webhook integration",
-    "status": "In Progress"
-  },
-  {
     "action": "add_comment",
-    "summary": "SP-468",
-    "comment": "Cancelled subscriptions should remain active until the billing period ends, then move to cancelled status"
+    "summary": "MAIN-53",
+    "comment": "Cancelled subscriptions should remain active until the billing period ends, then move to cancelled status."
   }
 ]

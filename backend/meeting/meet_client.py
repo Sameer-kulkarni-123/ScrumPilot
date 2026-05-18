@@ -39,13 +39,49 @@ async def join_meeting(meet_link):
             await page.wait_for_timeout(5000)
 
             # -----------------------------
-            # 2️⃣ Disable microphone
+            # 2️⃣ Disable camera and microphone
             # -----------------------------
-            print("Disabling microphone")
+            print("Disabling camera and microphone in lobby")
+            
+            # Camera muting
             try:
-                await page.keyboard.press("Control+d")
-            except:
-                print("Mic toggle failed")
+                cam_button = page.locator('div[role="button"][aria-label*="camera"], div[role="button"][aria-label*="video"]')
+                if await cam_button.is_visible(timeout=3000):
+                    aria_label = await cam_button.get_attribute("aria-label") or ""
+                    if "Turn off camera" in aria_label or "camera off" not in aria_label.lower():
+                        print("Camera is ON. Clicking to mute camera...")
+                        await cam_button.click()
+                    else:
+                        print("Camera already muted.")
+                else:
+                    print("Camera button not visible, pressing Ctrl+E")
+                    await page.keyboard.press("Control+e")
+            except Exception as e:
+                print("Lobby camera mute failed:", e)
+                try:
+                    await page.keyboard.press("Control+e")
+                except:
+                    pass
+
+            # Microphone muting
+            try:
+                mic_button = page.locator('div[role="button"][aria-label*="microphone"], div[role="button"][aria-label*="mic"]')
+                if await mic_button.is_visible(timeout=3000):
+                    aria_label = await mic_button.get_attribute("aria-label") or ""
+                    if "Turn off microphone" in aria_label or "mute" in aria_label.lower():
+                        print("Microphone is ON. Clicking to mute microphone...")
+                        await mic_button.click()
+                    else:
+                        print("Microphone already muted.")
+                else:
+                    print("Mic button not visible, pressing Ctrl+D")
+                    await page.keyboard.press("Control+d")
+            except Exception as e:
+                print("Lobby microphone mute failed:", e)
+                try:
+                    await page.keyboard.press("Control+d")
+                except:
+                    pass
 
             await page.wait_for_timeout(2000)
 
@@ -76,13 +112,39 @@ async def join_meeting(meet_link):
                     print("Join button not found")
             
             # -----------------------------
-            # 5️⃣ Disable microphone again
+            # 5️⃣ Ensure microphone and camera are disabled in-meeting
             # -----------------------------
-            print("Disabling microphone 2")
+            print("Ensuring camera and microphone are disabled in-meeting")
+            
+            # Mute camera in meeting if not already muted
             try:
-                await page.keyboard.press("Control+d")
-            except:
-                print("Mic toggle failed")
+                cam_button = page.locator('button[aria-label*="camera"], div[role="button"][aria-label*="camera"], button[aria-label*="video"], div[role="button"][aria-label*="video"]')
+                if await cam_button.is_visible(timeout=3000):
+                    aria_label = await cam_button.get_attribute("aria-label") or ""
+                    if "Turn off camera" in aria_label or "camera off" not in aria_label.lower():
+                        print("In-meeting Camera is ON. Clicking to mute...")
+                        await cam_button.click()
+                    else:
+                        print("In-meeting Camera already muted.")
+                else:
+                    print("In-meeting Camera button not visible.")
+            except Exception as e:
+                print("In-meeting camera mute failed:", e)
+
+            # Mute microphone in meeting if not already muted
+            try:
+                mic_button = page.locator('button[aria-label*="microphone"], div[role="button"][aria-label*="microphone"], button[aria-label*="mic"], div[role="button"][aria-label*="mic"]')
+                if await mic_button.is_visible(timeout=3000):
+                    aria_label = await mic_button.get_attribute("aria-label") or ""
+                    if "Turn off microphone" in aria_label or "mute" in aria_label.lower():
+                        print("In-meeting Microphone is ON. Clicking to mute...")
+                        await mic_button.click()
+                    else:
+                        print("In-meeting Microphone already muted.")
+                else:
+                    print("In-meeting Microphone button not visible.")
+            except Exception as e:
+                print("In-meeting microphone mute failed:", e)
 
             await page.wait_for_timeout(2000)
 

@@ -12,9 +12,9 @@
   },
   "commitment": {
     "story_ids": [
-      "MAIN-2",
-      "MAIN-3",
-      "MAIN-4"
+      "MAIN-31",
+      "MAIN-32",
+      "MAIN-33"
     ],
     "story_points": null,
     "estimated_hours": null
@@ -23,36 +23,36 @@
     {
       "developer_name": "Sameer",
       "story_ids": [
-        "MAIN-2",
-        "MAIN-4"
+        "MAIN-31",
+        "MAIN-33"
       ],
       "task_ids": [
-        "DBTASK-112",
-        "DBTASK-118"
+        "DBTASK-160",
+        "DBTASK-166"
       ],
       "estimated_hours": 32
     },
     {
       "developer_name": "Sujay",
       "story_ids": [
-        "MAIN-2",
-        "MAIN-4"
+        "MAIN-31",
+        "MAIN-33"
       ],
       "task_ids": [
-        "DBTASK-113",
-        "DBTASK-119"
+        "DBTASK-162",
+        "DBTASK-167"
       ],
       "estimated_hours": 32
     },
     {
       "developer_name": "Vanshaj",
       "story_ids": [
-        "MAIN-3",
-        "MAIN-4"
+        "MAIN-32",
+        "MAIN-33"
       ],
       "task_ids": [
-        "DBTASK-115",
-        "DBTASK-120"
+        "DBTASK-163",
+        "DBTASK-165"
       ],
       "estimated_hours": 30
     }

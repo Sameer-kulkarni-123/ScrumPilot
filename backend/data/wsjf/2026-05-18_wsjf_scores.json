@@ -17,7 +17,7 @@
         "credit card payments",
         "subscription management",
         "webhook handling for payment events",
-        "payment UI",
+        "clean payment UI",
         "receipt generation",
         "email notifications for successful payments"
       ],
