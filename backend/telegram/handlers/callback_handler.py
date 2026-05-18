@@ -136,8 +136,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Approval request not found")
             return
         
-        # Check if user is assigned to this approval
-        if approval.assigned_to != db_user.id:
+        # Check if user is assigned to this approval (admins bypass check)
+        is_admin = db_user.role and db_user.role.role_name == 'admin'
+        if approval.assigned_to != db_user.id and not is_admin:
             await query.edit_message_text(
                 "❌ You are not assigned to this approval request"
             )
@@ -799,8 +800,9 @@ async def handle_project_selection_callback(
             await query.edit_message_text("âŒ Approval request not found")
             return
 
-        if approval.assigned_to != db_user.id:
-            await query.edit_message_text("âŒ You are not assigned to this approval request")
+        is_admin = db_user.role and db_user.role.role_name == 'admin'
+        if approval.assigned_to != db_user.id and not is_admin:
+            await query.edit_message_text("❌ You are not assigned to this approval request")
             return
 
         if approval.status != 'pending':
@@ -963,28 +965,40 @@ async def handle_project_key_input(update: Update, context: ContextTypes.DEFAULT
     context.user_data['pending_project_key_approval_id'] = None
     context.user_data['pending_project_name'] = None
 
-    created_keys = await finalize_project_selection(
-        approval_id=approval_id,
-        user_id=db_user.id,
-        project_key=created_key,
-        project_name=created_name,
-        created_new_project=True,
-    )
+    try:
+        created_keys = await finalize_project_selection(
+            approval_id=approval_id,
+            user_id=db_user.id,
+            project_key=created_key,
+            project_name=created_name,
+            created_new_project=True,
+        )
 
-    message_lines = [
-        f"✅ Created Jira Scrum project `{created_key}` ({created_name})",
-        "",
-        "✅ Resumed pipeline successfully.",
-    ]
-    if created_keys:
-        message_lines.append("")
-        message_lines.append("Processed keys:")
-        for key in created_keys[:10]:
-            message_lines.append(f"  • {key}")
-        if len(created_keys) > 10:
-            message_lines.append(f"  • ... and {len(created_keys) - 10} more")
+        message_lines = [
+            f"✅ Created Jira Scrum project `{created_key}` ({created_name})",
+            "",
+            "✅ Resumed pipeline successfully.",
+        ]
+        if created_keys:
+            message_lines.append("")
+            message_lines.append("Processed keys:")
+            if isinstance(created_keys, list):
+                for key in created_keys[:10]:
+                    message_lines.append(f"  • {key}")
+                if len(created_keys) > 10:
+                    message_lines.append(f"  • ... and {len(created_keys) - 10} more")
+            elif isinstance(created_keys, str):
+                message_lines.append(f"```\n{created_keys}\n```")
 
-    await message.edit_text("\n".join(message_lines), parse_mode=None)
+        await message.edit_text("\n".join(message_lines), parse_mode=None)
+    except Exception as e:
+        logger.error(f"Execution failed after new project creation: {e}", exc_info=True)
+        await message.edit_text(
+            f"❌ *Execution Failed*\n\n"
+            f"Error: {str(e)}\n\n"
+            f"The project `{created_key}` was created, but the pipeline execution failed.",
+            parse_mode="Markdown"
+        )
 
 
 async def complete_existing_project_selection(query, approval: ApprovalRequest, user: User, project_key: str):
@@ -1015,34 +1029,50 @@ async def complete_existing_project_selection(query, approval: ApprovalRequest, 
                 raise
         return
 
-    created_keys = await finalize_project_selection(
-        approval_id=approval.approval_id,
-        user_id=user.id,
-        project_key=project_key,
-        project_name=validation.get('project_name', project_key),
-        created_new_project=False,
-    )
-
-    success_lines = [
-        f"✅ Approved by {user.display_name}",
-        "",
-        f"Using Jira Scrum project: {project_key}",
-        "",
-        "✅ Pipeline resumed successfully.",
-    ]
-    if created_keys:
-        success_lines.append("")
-        success_lines.append("Processed keys:")
-        for key in created_keys[:10]:
-            success_lines.append(f"  • {key}")
-        if len(created_keys) > 10:
-            success_lines.append(f"  • ... and {len(created_keys) - 10} more")
-
     try:
-        await query.edit_message_text("\n".join(success_lines), parse_mode=None)
-    except BadRequest as e:
-        if "Message is not modified" not in str(e):
-            raise
+        created_keys = await finalize_project_selection(
+            approval_id=approval.approval_id,
+            user_id=user.id,
+            project_key=project_key,
+            project_name=validation.get('project_name', project_key),
+            created_new_project=False,
+        )
+
+        success_lines = [
+            f"✅ Approved by {user.display_name}",
+            "",
+            f"Using Jira Scrum project: {project_key}",
+            "",
+            "✅ Pipeline resumed successfully.",
+        ]
+        if created_keys:
+            success_lines.append("")
+            success_lines.append("Processed keys:")
+            if isinstance(created_keys, list):
+                for key in created_keys[:10]:
+                    success_lines.append(f"  • {key}")
+                if len(created_keys) > 10:
+                    success_lines.append(f"  • ... and {len(created_keys) - 10} more")
+            elif isinstance(created_keys, str):
+                success_lines.append(f"```\n{created_keys}\n```")
+
+        try:
+            await query.edit_message_text("\n".join(success_lines), parse_mode=None)
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise
+    except Exception as e:
+        logger.error(f"Execution failed after project selection: {e}", exc_info=True)
+        try:
+            await query.edit_message_text(
+                f"❌ *Execution Failed*\n\n"
+                f"Error: {str(e)}\n\n"
+                f"The project `{project_key}` was selected, but the pipeline execution failed.",
+                parse_mode="Markdown"
+            )
+        except BadRequest as edit_e:
+            if "Message is not modified" not in str(edit_e):
+                raise
 
 
 async def finalize_project_selection(

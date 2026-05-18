@@ -541,21 +541,31 @@ class SprintPlanningPipeline:
             print(f"  Goal: {sprint_plan.sprint_goal}")
             
             # Calculate dates
-            start_date = sprint_plan.start_date or datetime.now().strftime('%Y-%m-%d')
+            start_date_raw = sprint_plan.start_date or datetime.now().strftime('%Y-%m-%d')
+            try:
+                start = datetime.strptime(start_date_raw, '%Y-%m-%d')
+            except ValueError:
+                start = datetime.now()
+
             if sprint_plan.end_date:
-                end_date = sprint_plan.end_date
+                try:
+                    end = datetime.strptime(sprint_plan.end_date, '%Y-%m-%d')
+                except ValueError:
+                    end = start + timedelta(weeks=sprint_plan.sprint_duration_weeks)
             else:
                 # Calculate end date based on duration
-                start = datetime.strptime(start_date, '%Y-%m-%d')
                 end = start + timedelta(weeks=sprint_plan.sprint_duration_weeks)
-                end_date = end.strftime('%Y-%m-%d')
+
+            # Jira agile API requires ISO-8601 format
+            start_date_iso = start.strftime('%Y-%m-%dT00:00:00.000Z')
+            end_date_iso = end.strftime('%Y-%m-%dT00:00:00.000Z')
             
             # Create sprint using Jira API
             sprint_data = self.jira.create_sprint(
                 name=sprint_name,
                 goal=sprint_plan.sprint_goal,
-                start_date=start_date,
-                end_date=end_date,
+                start_date=start_date_iso,
+                end_date=end_date_iso,
                 project_key=project_key,
             )
             
@@ -572,19 +582,49 @@ class SprintPlanningPipeline:
             print(f"  Sprint created: {result['sprint_id']}")
             
             # Step 2: Move stories to sprint
-            if sprint_plan.commitment.story_ids:
-                print(f"  Moving {len(sprint_plan.commitment.story_ids)} stories to sprint...")
+            stories_to_move = sprint_plan.commitment.story_names or sprint_plan.commitment.story_ids
+            if stories_to_move:
+                print(f"  Moving {len(stories_to_move)} stories to sprint...")
                 
-                for story_id in sprint_plan.commitment.story_ids:
+                import re
+                for item in stories_to_move:
                     try:
-                        self.jira.move_issue_to_sprint(story_id, result['sprint_id'])
-                        result['stories_moved'] += 1
-                        print(f"    Moved: {story_id}")
+                        real_issue_key = None
+                        # Check if already a direct issue key matching the project
+                        if project_key and re.match(rf"^{project_key}-\d+$", item, re.IGNORECASE):
+                            real_issue_key = item.upper()
+                        else:
+                            # Search Jira for the best match
+                            search_res = self.jira.search_tickets(
+                                summary_query=item,
+                                project_key=project_key,
+                                max_results=1
+                            )
+                            if search_res.get('success') and search_res.get('issues'):
+                                real_issue_key = search_res['issues'][0]['key']
+
+                        if not real_issue_key:
+                            error_msg = f"Failed to resolve Jira issue key for: '{item}'"
+                            result['errors'].append(error_msg)
+                            logger.error(error_msg)
+                            continue
+
+                        # Move with the real key
+                        move_res = self.jira.move_issue_to_sprint(real_issue_key, result['sprint_id'])
+                        if move_res.get('success'):
+                            result['stories_moved'] += 1
+                            print(f"    Moved: {real_issue_key} (from '{item}')")
+                        else:
+                            error_msg = f"Failed to move {real_issue_key}: {move_res.get('error')}"
+                            result['errors'].append(error_msg)
+                            logger.error(error_msg)
                     except Exception as e:
-                        error_msg = f"Failed to move {story_id}: {str(e)}"
+                        error_msg = f"Exception moving {item}: {str(e)}"
                         result['errors'].append(error_msg)
                         logger.error(error_msg)
-            
+
+                if result['stories_moved'] == 0:
+                    raise Exception("Sprint was created, but no backlog issues could be moved into it.")
             # Step 3: Assign developers
             if sprint_plan.developer_assignments:
                 print(f"  Assigning tasks to {len(sprint_plan.developer_assignments)} developers...")
