@@ -12,9 +12,9 @@
   },
   "commitment": {
     "story_ids": [
-      "MIN-26",
-      "MIN-30",
-      "MIN-34"
+      "MIN-219",
+      "MIN-220",
+      "MIN-221"
     ],
     "story_points": 21,
     "estimated_hours": 210
@@ -23,35 +23,36 @@
     {
       "developer_name": "Vaibhav Kumar",
       "story_ids": [
-        "MIN-26"
+        "MIN-219"
       ],
       "task_ids": [
-        "MIN-27",
-        "MIN-28"
+        "DBTASK-202",
+        "DBTASK-203",
+        "DBTASK-204"
       ],
       "estimated_hours": 80
     },
     {
       "developer_name": "Sameer Kulkarni",
       "story_ids": [
-        "MIN-30"
+        "MIN-220"
       ],
       "task_ids": [
-        "MIN-31",
-        "MIN-32",
-        "MIN-33"
+        "DBTASK-205",
+        "DBTASK-206",
+        "DBTASK-207"
       ],
       "estimated_hours": 80
     },
     {
       "developer_name": "test user",
       "story_ids": [
-        "MIN-34"
+        "MIN-221"
       ],
       "task_ids": [
-        "MIN-35",
-        "MIN-36",
-        "MIN-37"
+        "DBTASK-208",
+        "DBTASK-209",
+        "DBTASK-210"
       ],
       "estimated_hours": 50
     }
@@ -62,8 +63,8 @@
     "Design team hasn't finalized payment form styles"
   ],
   "dependencies": [
-    "DevOps team to set up Stripe webhook endpoints",
-    "Design team to finalize payment form styles"
+    "DevOps team setting up Stripe webhook endpoints",
+    "Design team finalizing payment form styles"
   ],
-  "notes": "Mid-sprint check-in on Wednesday to ensure Stripe webhook endpoints are set up"
+  "notes": "Mid-sprint check-in scheduled for Wednesday to ensure Stripe webhook endpoints are set up"
 }

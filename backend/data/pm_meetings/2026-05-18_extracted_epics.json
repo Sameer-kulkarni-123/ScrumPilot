@@ -22,7 +22,7 @@
     {
       "epic_id": "epic_002",
       "title": "Payment Gateway Integration",
-      "description": "Integration of a payment gateway, specifically Stripe, for credit card payments, subscription management, and payment event handling",
+      "description": "Integration with a payment gateway (Stripe) for credit card payments, subscription management, and payment event handling",
       "business_value": 10,
       "mentioned_features": [
         "credit card payments",
@@ -37,7 +37,7 @@
     {
       "epic_id": "epic_003",
       "title": "Admin Dashboard",
-      "description": "A dashboard for internal team to manage users, monitor the platform, and view analytics and system health",
+      "description": "A dashboard for internal team to manage users, monitor the platform, and view analytics",
       "business_value": 7,
       "mentioned_features": [
         "user management capabilities",
@@ -55,7 +55,7 @@
     {
       "epic_id": "epic_004",
       "title": "Email Notification System",
-      "description": "A system for sending transactional emails to users for important events, such as user signup, payment success, and password reset",
+      "description": "A system for sending transactional emails to users for important events",
       "business_value": 6,
       "mentioned_features": [
         "transactional emails",

@@ -314,8 +314,7 @@ class SprintPlanningPipeline:
                 # Get tasks for these stories
                 story_ids = [s.id for s in stories]
                 tasks = session.query(BacklogTask).filter(
-                    BacklogTask.story_id.in_(story_ids),
-                    BacklogTask.jira_key.isnot(None)
+                    BacklogTask.story_id.in_(story_ids)
                 ).all() if story_ids else []
                 
                 logger.info(f"Found {len(tasks)} tasks for backlog stories")
@@ -335,7 +334,7 @@ class SprintPlanningPipeline:
                 available_tasks = []
                 for task in tasks:
                     available_tasks.append({
-                        'task_id': task.jira_key,
+                        'task_id': task.jira_key or f"DBTASK-{task.id}",
                         'title': task.title,
                         'description': task.description,
                         'story_id': task.story.jira_key if task.story else None,
@@ -528,8 +527,11 @@ class SprintPlanningPipeline:
             'sprint_name': None,
             'sprint_key': None,
             'stories_moved': 0,
+            'tasks_moved': 0,
+            'tasks_promoted': 0,
             'tasks_assigned': 0,
             'developers_assigned': 0,
+            'task_key_map': {},
             'errors': []
         }
         
@@ -581,6 +583,15 @@ class SprintPlanningPipeline:
                         result['errors'].append(error_msg)
                         logger.error(error_msg)
 
+                task_result = self._promote_and_move_story_tasks(
+                    story_keys=sprint_plan.commitment.story_ids,
+                    sprint_id=result['sprint_id'],
+                )
+                result['tasks_moved'] = task_result['tasks_moved']
+                result['tasks_promoted'] = task_result['tasks_promoted']
+                result['task_key_map'] = task_result['task_key_map']
+                result['errors'].extend(task_result['errors'])
+
             # Step 2b: Start sprint so issues appear on the active sprint board
             if result['sprint_id']:
                 start_result = self.jira.start_sprint(
@@ -618,9 +629,10 @@ class SprintPlanningPipeline:
                     # Assign tasks
                     for task_id in assignment.task_ids:
                         try:
-                            self.jira.assign_issue(task_id, jira_assignee)
+                            visible_task_id = result['task_key_map'].get(task_id, task_id)
+                            self.jira.assign_issue(visible_task_id, jira_assignee)
                             result['tasks_assigned'] += 1
-                            print(f"    Assigned {task_id} to {dev_name}")
+                            print(f"    Assigned {visible_task_id} to {dev_name}")
                         except Exception as e:
                             error_msg = f"Failed to assign {task_id} to {dev_name}: {str(e)}"
                             result['errors'].append(error_msg)
@@ -634,6 +646,105 @@ class SprintPlanningPipeline:
             logger.error(error_msg)
             raise
         
+        return result
+
+    def _promote_and_move_story_tasks(
+        self,
+        story_keys: List[str],
+        sprint_id: int,
+    ) -> Dict[str, Any]:
+        """
+        Make implementation tasks visible on the sprint board.
+
+        Backlog creation may create Jira Subtasks under Stories. Subtasks are
+        often hidden/nested on Jira Scrum boards, so when a Story is committed
+        to a sprint this method creates a top-level Task card for each DB task,
+        links it back to the Story, moves it into the sprint, and updates the
+        DB task jira_key to the visible top-level Task.
+        """
+        from backend.db.connection import get_session
+        from backend.db.models import BacklogTask, Story
+
+        result = {
+            'tasks_moved': 0,
+            'tasks_promoted': 0,
+            'task_key_map': {},
+            'errors': [],
+        }
+
+        with get_session() as session:
+            stories = session.query(Story).filter(Story.jira_key.in_(story_keys)).all()
+
+            for story in stories:
+                tasks = session.query(BacklogTask).filter(
+                    BacklogTask.story_id == story.id,
+                ).all()
+
+                for task in tasks:
+                    original_key = task.jira_key
+                    visible_key = original_key
+
+                    issue_type = None
+                    if original_key:
+                        issue_type_result = self.jira.get_issue_type(original_key)
+                        if not issue_type_result.get('success'):
+                            error_msg = f"Failed to inspect {original_key}: {issue_type_result.get('error')}"
+                            result['errors'].append(error_msg)
+                            logger.error(error_msg)
+                            continue
+                        issue_type = (issue_type_result.get('issue_type') or '').lower()
+
+                    if not original_key or issue_type in {'subtask', 'sub-task'}:
+                        description = (
+                            f"{task.description or ''}\n\n"
+                            "---\n"
+                            "Created by ScrumPilot during sprint planning.\n"
+                            f"Parent Story: {story.jira_key}\n"
+                            f"Original Jira item: {original_key or 'None'}\n"
+                            f"ScrumPilot Task ID: {task.id}\n"
+                        )
+                        created = self.jira.create_ticket(
+                            summary=task.title,
+                            description=description,
+                            issue_type="Task",
+                        )
+                        if not created.get('success'):
+                            error_msg = f"Failed to promote {original_key} to Task: {created.get('error')}"
+                            result['errors'].append(error_msg)
+                            logger.error(error_msg)
+                            continue
+
+                        visible_key = created.get('key')
+                        result['tasks_promoted'] += 1
+                        result['task_key_map'][f"DBTASK-{task.id}"] = visible_key
+                        if original_key:
+                            result['task_key_map'][original_key] = visible_key
+
+                        link_result = self.jira.link_issues(visible_key, story.jira_key)
+                        if not link_result.get('success'):
+                            logger.warning(
+                                "Could not link promoted task %s to story %s: %s",
+                                visible_key,
+                                story.jira_key,
+                                link_result.get('error'),
+                            )
+
+                        task.jira_key = visible_key
+                        task.jira_status = 'To Do'
+                        task.jira_synced_at = datetime.now()
+                        session.flush()
+
+                    move_result = self.jira.move_issue_to_sprint(visible_key, sprint_id)
+                    if move_result.get('success'):
+                        result['tasks_moved'] += 1
+                        print(f"    Moved task: {visible_key}")
+                    else:
+                        error_msg = f"Failed to move task {visible_key}: {move_result.get('error')}"
+                        result['errors'].append(error_msg)
+                        logger.error(error_msg)
+
+            session.commit()
+
         return result
 
     def persist_sprint_to_db(

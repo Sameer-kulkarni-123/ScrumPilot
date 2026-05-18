@@ -370,6 +370,42 @@ class JiraManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def link_issues(
+        self,
+        inward_issue_key: str,
+        outward_issue_key: str,
+        link_type: str = "Relates",
+    ) -> Dict:
+        """
+        Link two Jira issues without changing their hierarchy.
+
+        This is useful for top-level Task cards that should remain associated
+        with a Story while still appearing independently on a Scrum board.
+        """
+        try:
+            self.client.create_issue_link(
+                type=link_type,
+                inwardIssue=inward_issue_key,
+                outwardIssue=outward_issue_key,
+            )
+            return {
+                "success": True,
+                "message": f"Linked {inward_issue_key} to {outward_issue_key}.",
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_issue_type(self, issue_key: str) -> Dict:
+        """Return the Jira issue type name for an issue key."""
+        try:
+            issue = self.client.issue(issue_key, fields="issuetype")
+            return {
+                "success": True,
+                "issue_type": issue.fields.issuetype.name,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     # ── Status transitions ────────────────────────────────────────────────
 
     def get_transitions(self, ticket_key: str) -> Dict:

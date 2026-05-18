@@ -2,7 +2,7 @@
 Epic Decomposer Agent
 
 Breaks prioritized Epics (from WSJF Phase 3) into User Stories and Sub-tasks
-for Jira creation. Each Epic is decomposed into 3-5 User Stories, each with
+for Jira creation. Each Epic is decomposed into one or more User Stories, each with
 2-4 Sub-tasks and 2-4 Acceptance Criteria.
 
 Uses LangChain with Groq LLM for intelligent decomposition based on
@@ -131,7 +131,7 @@ class DecomposedEpic(BaseModel):
         description: Epic description
         wsjf_score: Calculated WSJF score
         priority_rank: Priority ranking (1 = highest)
-        stories: List of 3-5 User Stories
+        stories: List of one or more User Stories
     """
     epic_id: str = Field(
         ...,
@@ -156,9 +156,8 @@ class DecomposedEpic(BaseModel):
     )
     stories: List[UserStory] = Field(
         ...,
-        min_length=3,
-        max_length=5,
-        description="List of 3-5 User Stories"
+        min_length=1,
+        description="List of one or more User Stories"
     )
 
 
@@ -454,8 +453,8 @@ class EpicDecomposerAgent:
             ValueError: If decomposition fails validation
             Exception: If LLM call fails
         """
-        # Validate story/criteria/task counts
-        num_stories = max(3, min(5, num_stories))
+        # Validate story/criteria/task counts.
+        num_stories = max(1, num_stories)
         num_criteria = max(2, min(4, num_criteria))
         num_tasks = max(2, min(4, num_tasks))
 
@@ -498,7 +497,10 @@ class EpicDecomposerAgent:
         logger.debug(f"LLM returned {len(stories)} stories for Epic '{epic_title}'")
 
         # Validate and fix each story
-        validated_stories = self._validate_stories(stories, epic_title)
+        validated_stories = self._namespace_story_and_task_ids(
+            self._validate_stories(stories, epic_title, min_stories=1),
+            epic_id,
+        )
 
         # Create DecomposedEpic with Pydantic validation
         decomposed_epic = DecomposedEpic(
@@ -521,6 +523,18 @@ class EpicDecomposerAgent:
               f"{total_tasks} Sub-tasks, {total_hours} total hours")
 
         return decomposed_epic
+
+    def _namespace_story_and_task_ids(
+        self,
+        stories: List[UserStory],
+        epic_id: str,
+    ) -> List[UserStory]:
+        """Keep generated Story/Task IDs unique across all Epics."""
+        for story_index, story in enumerate(stories, 1):
+            story.story_id = f"{epic_id}_story_{story_index:03d}"
+            for task_index, task in enumerate(story.tasks, 1):
+                task.task_id = f"{epic_id}_task_{story_index:03d}_{task_index:03d}"
+        return stories
 
     def _validate_stories(
         self,
@@ -651,7 +665,7 @@ class EpicDecomposerAgent:
             epic: Epic dictionary from WSJF data
             
         Returns:
-            Number of Stories to generate (3-5)
+            Number of Stories to generate (minimum 1)
         """
         effort = epic.get('wsjf_components', {}).get('effort', 5)
         features = epic.get('mentioned_features', [])
@@ -916,7 +930,7 @@ class EpicDecomposerAgent:
             description=epic.get('description', ''),
             wsjf_score=epic.get('wsjf_score', 0.0),
             priority_rank=epic.get('priority_rank', 0),
-            stories=all_stories
+            stories=self._namespace_story_and_task_ids(all_stories, epic_id)
         )
 
         total_tasks = sum(len(s.tasks) for s in decomposed_epic.stories)

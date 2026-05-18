@@ -552,7 +552,7 @@ class JiraCreatorAgent:
 
     def create_task_in_jira(self, task: Dict, story_key: str) -> JiraTask:
         """
-        Create a Sub-task in Jira linked to a Story.
+        Create a top-level Task in Jira linked to a Story.
         
         Features:
         - Idempotency: Checks if already created
@@ -567,6 +567,16 @@ class JiraCreatorAgent:
         """
         task_id = task.get('task_id', 'unknown')
         task_title = task.get('title', 'Untitled Task')
+        logger.debug("Deferring Jira Task creation until sprint planning: %s (%s)", task_title, task_id)
+        print(f"        Deferring Task until sprint planning: {task_title[:50]}...")
+        return JiraTask(
+            task_id=task_id,
+            jira_key=None,
+            title=task_title,
+            estimated_hours=task.get('estimated_hours', 0),
+            story_points=task.get('story_points'),
+            success=True
+        )
         
         # ═══════════════════════════════════════════════════════════════════
         # IDEMPOTENCY CHECK: Skip if already created (with Jira verification)
@@ -598,8 +608,8 @@ class JiraCreatorAgent:
                 # Remove from mapping and continue with creation
                 del self.creation_result.id_mapping[task_id]
         
-        logger.debug(f"Creating Sub-task in Jira: {task_title} ({task_id})")
-        print(f"        Creating Sub-task: {task_title[:50]}...")
+        logger.debug(f"Creating linked Task in Jira: {task_title} ({task_id})")
+        print(f"        Creating linked Task: {task_title[:50]}...")
 
         # Build Task description
         description = task.get('description', '')
@@ -618,22 +628,28 @@ class JiraCreatorAgent:
 ---
 *Created by ScrumPilot*
 *Task ID*: {task_id}
-*Parent Story*: {story_key}
+*Linked Story*: {story_key}
 """
 
-        # Create Task in Jira with parent link
-        # Note: Using "Task" instead of "Sub-task" because some Jira projects
-        # don't have Sub-task configured. We still link it to the parent Story.
+        # Create a top-level Task so it appears as a sprint board card,
+        # then link it back to the Story for traceability.
         try:
             result = self.jira.create_ticket(
                 summary=task_title,
                 description=task_description,
-                issue_type="Subtask",  # Subtasks are children of Stories (hierarchy level -1)
-                parent_key=story_key,
+                issue_type="Task",
             )
 
             if result.get('success'):
                 jira_key = result.get('key')
+                link_result = self.jira.link_issues(jira_key, story_key)
+                if not link_result.get('success'):
+                    logger.warning(
+                        "Created task %s but could not link it to story %s: %s",
+                        jira_key,
+                        story_key,
+                        link_result.get('error'),
+                    )
                 
                 # ═══════════════════════════════════════════════════════════
                 # SAVE MAPPING IMMEDIATELY for idempotency
