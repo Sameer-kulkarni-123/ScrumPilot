@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 
 from backend.telegram.handlers.start_handler import handle_email_linking
 from backend.telegram.handlers.callback_handler import handle_rejection_reason
-from backend.telegram.handlers.pipeline_handler import handle_transcript_text
+from backend.telegram.handlers.pipeline_handler import handle_speaker_name, handle_transcript_text
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -27,6 +27,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif context.user_data.get('awaiting_pipeline_transcript'):
         await handle_transcript_text(update, context)
+
+    elif context.user_data.get('awaiting_speaker_name'):
+        await handle_speaker_name(update, context)
     
     else:
         # No active conversation - show help

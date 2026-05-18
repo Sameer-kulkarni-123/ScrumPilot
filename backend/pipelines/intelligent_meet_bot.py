@@ -24,14 +24,18 @@ import logging
 import threading
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any, Literal
+from typing import Awaitable, Callable, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from backend.speech.audio_recorder import record_system_audio
 from backend.meeting.meet_client import join_meeting
-from backend.speech.whisperai.transcribe import transcribe_audio_from_path
+from backend.speech.diarization import (
+    SpeakerIdentificationRequest,
+    prepare_diarization_session,
+    transcribe_prepared_diarization,
+)
 
 # Import all pipelines
 from backend.pipelines.backlog_pipeline import BacklogPipeline
@@ -215,7 +219,10 @@ class IntelligentMeetBot:
         meet_link: str,
         output_dir: str = "backend/data/meetings",
         auto_detect: bool = True,
-        force_type: Optional[MeetingType] = None
+        force_type: Optional[MeetingType] = None,
+        speaker_identifier: Optional[
+            Callable[[list[SpeakerIdentificationRequest]], Awaitable[dict[str, str]]]
+        ] = None,
     ) -> MeetBotResult:
         """
         Run complete meet bot workflow.
@@ -253,7 +260,8 @@ class IntelligentMeetBot:
             audio_file, transcript_file = await self._record_meeting(
                 meet_link=meet_link,
                 output_dir=output_dir,
-                bot_id=bot_id
+                bot_id=bot_id,
+                speaker_identifier=speaker_identifier,
             )
             
             result.audio_file = audio_file
@@ -335,7 +343,10 @@ class IntelligentMeetBot:
         self,
         meet_link: str,
         output_dir: str,
-        bot_id: str
+        bot_id: str,
+        speaker_identifier: Optional[
+            Callable[[list[SpeakerIdentificationRequest]], Awaitable[dict[str, str]]]
+        ] = None,
     ) -> tuple[str, str]:
         """
         Join meeting, record audio, and transcribe.
@@ -348,6 +359,11 @@ class IntelligentMeetBot:
         
         audio_file = os.path.join(output_dir, f"{bot_id}_audio.wav")
         transcript_file = os.path.join(output_dir, f"{bot_id}_transcript.txt")
+        timestamped_transcript_file = os.path.join(
+            output_dir,
+            f"{bot_id}_transcript_timestamped.txt",
+        )
+        speaker_sample_dir = os.path.join(output_dir, f"{bot_id}_speaker_samples")
         
         stop_event = threading.Event()
         
@@ -372,9 +388,24 @@ class IntelligentMeetBot:
         stop_event.set()
         await recording_task
         
-        # Transcribe
-        print("  Transcribing audio...")
-        transcript = transcribe_audio_from_path(audio_file)
+        # Transcribe with speaker diarization.
+        print("  Running speaker diarization...")
+        diarization_session = prepare_diarization_session(
+            audio_file,
+            sample_output_dir=speaker_sample_dir,
+        )
+
+        speaker_names: dict[str, str] = {}
+        if diarization_session.unknown_speakers and speaker_identifier:
+            print(f"  Waiting for names for {len(diarization_session.unknown_speakers)} speaker(s)...")
+            speaker_names = await speaker_identifier(diarization_session.unknown_speakers)
+
+        print("  Transcribing audio with speaker labels...")
+        transcript = transcribe_prepared_diarization(
+            diarization_session,
+            speaker_names=speaker_names,
+            timestamped_output_path=timestamped_transcript_file,
+        )
         
         # Save transcript
         with open(transcript_file, 'w', encoding='utf-8') as f:
@@ -382,6 +413,7 @@ class IntelligentMeetBot:
         
         print(f"  Audio saved: {audio_file}")
         print(f"  Transcript saved: {transcript_file}")
+        print(f"  Timestamped transcript saved: {timestamped_transcript_file}")
         
         return audio_file, transcript_file
     
