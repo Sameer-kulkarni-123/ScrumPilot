@@ -1,0 +1,74 @@
+{
+  "sprint_goal": "Complete the payment gateway integration and get it production-ready",
+  "sprint_number": 24,
+  "sprint_duration_weeks": 2,
+  "start_date": null,
+  "end_date": null,
+  "team_capacity": {
+    "total_hours": 320,
+    "team_size": 5,
+    "velocity_last_sprint": 8,
+    "availability_notes": "Bob is on PTO for 3 days"
+  },
+  "commitment": {
+    "story_ids": [
+      "SP-464",
+      "SP-468",
+      "SP-472"
+    ],
+    "story_points": 21,
+    "estimated_hours": null
+  },
+  "developer_assignments": [
+    {
+      "developer_name": "Sarah",
+      "story_ids": [
+        "SP-464"
+      ],
+      "task_ids": [
+        "SP-465",
+        "SP-466",
+        "SP-467"
+      ],
+      "estimated_hours": 80
+    },
+    {
+      "developer_name": "Mike",
+      "story_ids": [
+        "SP-468"
+      ],
+      "task_ids": [
+        "SP-469",
+        "SP-470"
+      ],
+      "estimated_hours": 80
+    },
+    {
+      "developer_name": "Alice",
+      "story_ids": [
+        "SP-472"
+      ],
+      "task_ids": [
+        "SP-473",
+        "SP-474",
+        "SP-475"
+      ],
+      "estimated_hours": 50
+    },
+    {
+      "developer_name": "Tom",
+      "story_ids": [],
+      "task_ids": [],
+      "estimated_hours": null
+    }
+  ],
+  "risks_identified": [
+    "Dependency on DevOps team to set up Stripe webhook endpoints",
+    "Stripe subscription API quirks around prorated refunds",
+    "Design team hasn't finalized payment form styles"
+  ],
+  "dependencies": [
+    "DevOps team to set up Stripe webhook endpoints"
+  ],
+  "notes": null
+}

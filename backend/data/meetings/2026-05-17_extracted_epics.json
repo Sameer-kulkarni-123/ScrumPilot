@@ -1,0 +1,26 @@
+{
+  "meeting_date": "20260517_1",
+  "meeting_type": "pm_stakeholder",
+  "epics": [
+    {
+      "epic_id": "epic_001",
+      "title": "Payment Gateway Integration",
+      "description": "Complete payment gateway integration to enable credit card payments, subscription management, and payment event notifications",
+      "business_value": 9,
+      "mentioned_features": [
+        "Credit card payments",
+        "Subscription management",
+        "Payment event notifications",
+        "Stripe gateway setup",
+        "Payment form",
+        "Payment processing",
+        "Subscription UI",
+        "Stripe API integration",
+        "Webhook setup",
+        "Event processing",
+        "Notification testing"
+      ],
+      "confidence": "medium"
+    }
+  ]
+}

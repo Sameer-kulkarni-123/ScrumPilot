@@ -16,23 +16,27 @@ warnings.filterwarnings("ignore", category=UserWarning)
 load_dotenv()
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-audio_path = "experiments/meeting.wav"
+audio_path = "experiments/meeting_1.wav"
 DB_PATH = "speaker_db.pkl"
 THRESHOLD = 0.35
 
 # ------------------------
 # Load models
 # ------------------------
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device: {device}")
+
 print("Loading diarization model...")
 pipeline = Pipeline.from_pretrained(
     "pyannote/speaker-diarization-3.1",
     token=HF_TOKEN
 )
+pipeline.to(torch.device(device))
 
 print("Loading whisper model...")
-asr_model = whisper.load_model("base")
+asr_model = whisper.load_model("base", device=device)
 
-encoder = VoiceEncoder()
+encoder = VoiceEncoder(device=device)
 
 # ------------------------
 # Load audio
@@ -86,7 +90,14 @@ def extract_segment(start, end):
 # ------------------------
 print("Running diarization...")
 diarization_output = pipeline(audio_input)
-diarization = diarization_output.speaker_diarization
+
+# Safely extract Annotation object
+diarization = diarization_output
+if not hasattr(diarization, "itertracks"):
+    if hasattr(diarization, "speaker_diarization"):
+        diarization = diarization.speaker_diarization
+    elif hasattr(diarization, "annotation"):
+        diarization = diarization.annotation
 
 print("\n--- RAW DIARIZATION ---")
 for turn, _, speaker in diarization.itertracks(yield_label=True):

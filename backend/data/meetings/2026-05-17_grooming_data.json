@@ -1,0 +1,16 @@
+{
+  "meeting_date": "20260517_1",
+  "meeting_type": "sprint_grooming",
+  "epic_estimates": [
+    {
+      "epic_reference": "payment gateway integration",
+      "epic_id": "epic_001",
+      "epic_title": "Payment Gateway Integration",
+      "time_criticality": 9,
+      "risk_reduction": 8,
+      "effort": 8,
+      "confidence": "medium"
+    }
+  ],
+  "missing_epics": []
+}
