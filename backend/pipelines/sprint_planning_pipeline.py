@@ -219,9 +219,7 @@ class SprintPlanningPipeline:
                     print("  DRY RUN MODE - Simulating Jira creation")
                     jira_result = self._simulate_jira_creation(sprint_plan)
                 else:
-                    project_key = (context or {}).get("project_key")
-                    if isinstance(project_key, str):
-                        project_key = project_key.strip().upper() or None
+                    project_key = self._normalize_project_key((context or {}).get("project_key"))
                     jira_result = self._create_sprint_in_jira(
                         sprint_plan,
                         project_key=project_key,
@@ -277,14 +275,29 @@ class SprintPlanningPipeline:
         context: Optional[Dict[str, Any]]
     ) -> SprintPlanningResult:
         """Extract sprint plan from transcript."""
-        
-        # If no context provided, try to load from backlog
+
+        project_key = self._normalize_project_key((context or {}).get("project_key"))
+
+        # If no story/task context is provided, load project-scoped backlog data.
         if context is None:
-            context = self._load_backlog_context()
+            context = self._load_backlog_context(project_key=project_key)
+        elif not context.get("available_stories") and not context.get("available_tasks"):
+            loaded_context = self._load_backlog_context(project_key=project_key)
+            loaded_context.update(context)
+            context = loaded_context
+
+        if project_key:
+            context["project_key"] = project_key
         
         return self.extractor.extract_from_file(transcript_path, context)
-    
-    def _load_backlog_context(self) -> Dict[str, Any]:
+
+    @staticmethod
+    def _normalize_project_key(project_key: Optional[str]) -> Optional[str]:
+        if not isinstance(project_key, str):
+            return None
+        return project_key.strip().upper() or None
+
+    def _load_backlog_context(self, project_key: Optional[str] = None) -> Dict[str, Any]:
         """
         Load context from existing backlog data.
         
@@ -299,9 +312,13 @@ class SprintPlanningPipeline:
         from backend.db.connection import get_session
         from backend.db.models import Story, BacklogTask, SprintStory
         
+        project_key = self._normalize_project_key(project_key)
         context = {}
         
-        logger.info("Loading backlog context from database")
+        if project_key:
+            logger.info(f"Loading backlog context from database for project {project_key}")
+        else:
+            logger.info("Loading backlog context from database")
         
         try:
             with get_session() as session:
@@ -309,19 +326,32 @@ class SprintPlanningPipeline:
                 # Stories in sprint have entries in sprint_stories table
                 stories_in_sprint = session.query(SprintStory.story_id).distinct()
                 
-                stories = session.query(Story).filter(
+                stories_query = session.query(Story).filter(
                     ~Story.id.in_(stories_in_sprint),
                     Story.jira_key.isnot(None)
-                ).all()
+                )
+                if project_key:
+                    stories_query = stories_query.filter(
+                        Story.jira_project_key == project_key
+                    )
+                stories = stories_query.all()
                 
-                logger.info(f"Found {len(stories)} stories in backlog")
+                if project_key:
+                    logger.info(f"Found {len(stories)} stories in backlog for project {project_key}")
+                else:
+                    logger.info(f"Found {len(stories)} stories in backlog")
                 
                 # Get tasks for these stories
                 story_ids = [s.id for s in stories]
-                tasks = session.query(BacklogTask).filter(
+                tasks_query = session.query(BacklogTask).filter(
                     BacklogTask.story_id.in_(story_ids),
                     BacklogTask.jira_key.isnot(None)
-                ).all() if story_ids else []
+                )
+                if project_key:
+                    tasks_query = tasks_query.filter(
+                        BacklogTask.jira_project_key == project_key
+                    )
+                tasks = tasks_query.all() if story_ids else []
                 
                 logger.info(f"Found {len(tasks)} tasks for backlog stories")
                 
@@ -379,8 +409,11 @@ class SprintPlanningPipeline:
                         available_stories = []
                         for epic in backlog_data.get('epics', []):
                             for story in epic.get('stories', []):
+                                story_id = story.get('story_id', 'N/A')
+                                if project_key and not str(story_id).upper().startswith(f"{project_key}-"):
+                                    continue
                                 available_stories.append({
-                                    'story_id': story.get('story_id', 'N/A'),
+                                    'story_id': story_id,
                                     'title': story.get('title', 'N/A'),
                                     'story_points': story.get('story_points', 0),
                                     'epic_id': epic.get('epic_id', 'N/A')
@@ -731,6 +764,13 @@ class SprintPlanningPipeline:
 
         candidate = issue_ref.strip()
         if re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", candidate):
+            expected_project_key = self._normalize_project_key(project_key)
+            if expected_project_key and not candidate.upper().startswith(f"{expected_project_key}-"):
+                logger.warning(
+                    f"Skipping issue {candidate}: it does not belong to selected project "
+                    f"{expected_project_key}"
+                )
+                return None
             return candidate
 
         search_result = self.jira.search_tickets(

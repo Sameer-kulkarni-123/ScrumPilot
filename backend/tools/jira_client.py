@@ -777,6 +777,12 @@ class JiraManager:
             for existing in existing_sprints:
                 if getattr(existing, "name", "").strip() == normalized_name:
                     sprint_state = getattr(existing, "state", "future")
+                    if sprint_state == "active" and not auto_start:
+                        logger.info(
+                            f"Found active sprint '{normalized_name}' "
+                            f"(id={existing.id}) on board {board_id}; creating a future sprint instead."
+                        )
+                        continue
                     if auto_start and start_date and end_date and sprint_state == "future":
                         try:
                             from datetime import datetime as _dt

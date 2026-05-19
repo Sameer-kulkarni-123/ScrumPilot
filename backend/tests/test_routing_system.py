@@ -509,6 +509,48 @@ class TestJiraClientProjectField:
         )
         assert captured["fields"]["project"]["key"] == "MOBILE"
 
+    def test_create_sprint_does_not_reuse_active_sprint_when_creating_future(self):
+        """Sprint planning should create a backlog-ready future sprint, not reuse active one."""
+        from backend.tools.jira_client import JiraManager
+
+        mgr = JiraManager.__new__(JiraManager)
+        mgr.project_key = "TEST3"
+        mgr.url = "https://fake.atlassian.net"
+        mgr.client = MagicMock()
+        mgr._enforce_rate_limit = MagicMock()
+        mgr.get_project_boards = MagicMock(return_value=[{"id": 110, "name": "TEST3 Scrum Board"}])
+
+        active_sprint = MagicMock()
+        active_sprint.id = 362
+        active_sprint.name = "Sprint 24"
+        active_sprint.state = "active"
+
+        future_sprints_by_state = {
+            "future": [],
+            "active": [active_sprint],
+        }
+        mgr.client.sprints.side_effect = lambda board_id, state: future_sprints_by_state[state]
+
+        created_sprint = MagicMock()
+        created_sprint.id = 363
+        created_sprint.name = "Sprint 24"
+        created_sprint.state = "future"
+        mgr.client.create_sprint.return_value = created_sprint
+
+        result = mgr.create_sprint(
+            name="Sprint 24",
+            goal="Payment gateway",
+            start_date="2026-05-20",
+            end_date="2026-06-03",
+            project_key="TEST3",
+            auto_start=False,
+        )
+
+        assert result["success"] is True
+        assert result["id"] == 363
+        assert result["state"] == "future"
+        mgr.client.create_sprint.assert_called_once()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 8. Migration 003 — importable and has upgrade/downgrade
@@ -574,6 +616,41 @@ class TestSprintPlanningProjectRouting:
         assert result.status == "completed"
         assert captured["project_key"] == "MOBILE"
         assert result.jira_result["project_key"] == "MOBILE"
+
+    def test_extract_sprint_plan_loads_project_scoped_context(self):
+        """Project selection should constrain the backlog context given to the extractor."""
+        from backend.agents.sprint_planning_extractor import SprintPlanningResult
+        from backend.pipelines.sprint_planning_pipeline import SprintPlanningPipeline
+
+        pipeline = SprintPlanningPipeline.__new__(SprintPlanningPipeline)
+        pipeline.extractor = MagicMock()
+        pipeline.extractor.extract_from_file.return_value = MagicMock(spec=SprintPlanningResult)
+        pipeline._load_backlog_context = MagicMock(
+            return_value={
+                "available_stories": [{"story_id": "TEST3-1", "title": "Payment"}],
+                "available_tasks": [],
+            }
+        )
+
+        pipeline._extract_sprint_plan(
+            "dummy_transcript.txt",
+            {"project_key": " test3 "},
+        )
+
+        pipeline._load_backlog_context.assert_called_once_with(project_key="TEST3")
+        passed_context = pipeline.extractor.extract_from_file.call_args.args[1]
+        assert passed_context["project_key"] == "TEST3"
+        assert passed_context["available_stories"][0]["story_id"] == "TEST3-1"
+
+    def test_resolve_issue_key_rejects_direct_key_from_other_project(self):
+        """A selected project must not move literal issue keys from another project."""
+        from backend.pipelines.sprint_planning_pipeline import SprintPlanningPipeline
+
+        pipeline = SprintPlanningPipeline.__new__(SprintPlanningPipeline)
+        pipeline.jira = MagicMock()
+
+        assert pipeline._resolve_issue_key("TEST-2", project_key="TEST3") is None
+        pipeline.jira.search_tickets.assert_not_called()
 
 
 class TestMigration003:

@@ -1597,7 +1597,7 @@ async def execute_sprint_planning(approval: ApprovalRequest):
             sprint_plan = await asyncio.to_thread(
                 pipeline._extract_sprint_plan,
                 transcript_file,
-                None,
+                {"project_key": selected_project_key},
             )
             date_str = datetime.now().strftime('%Y-%m-%d')
             sprint_plan_file = f"backend/data/sprint_planning/{date_str}_sprint_plan.json"
