@@ -219,7 +219,13 @@ class SprintPlanningPipeline:
                     print("  DRY RUN MODE - Simulating Jira creation")
                     jira_result = self._simulate_jira_creation(sprint_plan)
                 else:
-                    jira_result = self._create_sprint_in_jira(sprint_plan)
+                    project_key = (context or {}).get("project_key")
+                    if isinstance(project_key, str):
+                        project_key = project_key.strip().upper() or None
+                    jira_result = self._create_sprint_in_jira(
+                        sprint_plan,
+                        project_key=project_key,
+                    )
                 
                 result.jira_result = jira_result
                 
@@ -528,6 +534,8 @@ class SprintPlanningPipeline:
             'sprint_id': None,
             'sprint_name': None,
             'sprint_key': None,
+            'project_key': project_key,
+            'board_id': None,
             'start_date': None,
             'end_date': None,
             'stories_moved': 0,
@@ -578,8 +586,15 @@ class SprintPlanningPipeline:
             result['sprint_id'] = sprint_data.get('id')
             result['sprint_name'] = sprint_name
             result['sprint_key'] = sprint_data.get('key', sprint_name)
+            result['project_key'] = sprint_data.get('project_key') or project_key
+            result['board_id'] = sprint_data.get('board_id')
             
             print(f"  Sprint created: {result['sprint_id']}")
+            if result.get('project_key') or result.get('board_id'):
+                print(
+                    f"  Jira routing: project={result.get('project_key') or 'default'}, "
+                    f"board={result.get('board_id') or 'unknown'}"
+                )
             
             # Step 2: Move stories to sprint
             if sprint_plan.commitment.story_ids:

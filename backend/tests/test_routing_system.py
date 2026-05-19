@@ -32,6 +32,18 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 # ── Fake minimal jira_routing.json config ─────────────────────────────────────
+# The Jira tests in this module monkey-patch JiraManager internals and do not
+# need the third-party jira package or network access.
+if "jira" not in sys.modules:
+    fake_jira_module = types.ModuleType("jira")
+    fake_jira_module.JIRA = MagicMock()
+    sys.modules["jira"] = fake_jira_module
+
+if "jira.exceptions" not in sys.modules:
+    fake_jira_exceptions = types.ModuleType("jira.exceptions")
+    fake_jira_exceptions.JIRAError = Exception
+    sys.modules["jira.exceptions"] = fake_jira_exceptions
+
 ROUTING_CONFIG = {
     "default_project_key": "SP",
     "default_component": "General",
@@ -501,6 +513,68 @@ class TestJiraClientProjectField:
 # ═══════════════════════════════════════════════════════════════════════════════
 # 8. Migration 003 — importable and has upgrade/downgrade
 # ═══════════════════════════════════════════════════════════════════════════════
+
+class TestSprintPlanningProjectRouting:
+    def test_direct_sprint_creation_uses_context_project_key(self):
+        """Direct sprint creation must use the selected project, not the .env default."""
+        from backend.agents.sprint_planning_extractor import (
+            SprintCommitment,
+            SprintPlanningResult,
+            TeamCapacity,
+        )
+
+        fake_jira_module = types.ModuleType("jira")
+        fake_jira_module.JIRA = MagicMock()
+        fake_jira_exceptions = types.ModuleType("jira.exceptions")
+        fake_jira_exceptions.JIRAError = Exception
+        with patch.dict(
+            sys.modules,
+            {"jira": fake_jira_module, "jira.exceptions": fake_jira_exceptions},
+        ):
+            from backend.pipelines.sprint_planning_pipeline import SprintPlanningPipeline
+
+        sprint_plan = SprintPlanningResult(
+            sprint_goal="Ship project-routed sprint planning",
+            sprint_number=42,
+            team_capacity=TeamCapacity(total_hours=80, team_size=4),
+            commitment=SprintCommitment(story_ids=["MOBILE-10"]),
+            developer_assignments=[],
+        )
+
+        pipeline = SprintPlanningPipeline.__new__(SprintPlanningPipeline)
+        pipeline.require_telegram_approval = False
+        pipeline.extractor = MagicMock()
+        pipeline._extract_sprint_plan = MagicMock(return_value=sprint_plan)
+
+        captured = {}
+
+        def fake_create_sprint(plan, project_key=None):
+            captured["project_key"] = project_key
+            return {
+                "sprint_id": 123,
+                "sprint_name": "Sprint 42",
+                "sprint_key": "SPRINT-123",
+                "project_key": project_key,
+                "board_id": 456,
+                "stories_moved": 1,
+                "tasks_assigned": 0,
+                "developers_assigned": 0,
+                "errors": [],
+            }
+
+        pipeline._create_sprint_in_jira = fake_create_sprint
+
+        result = pipeline.run(
+            transcript_path="dummy_transcript.txt",
+            create_in_jira=True,
+            dry_run=False,
+            context={"project_key": " mobile "},
+        )
+
+        assert result.status == "completed"
+        assert captured["project_key"] == "MOBILE"
+        assert result.jira_result["project_key"] == "MOBILE"
+
 
 class TestMigration003:
     def test_importable(self):

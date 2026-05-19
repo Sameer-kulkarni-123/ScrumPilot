@@ -812,6 +812,8 @@ class JiraManager:
                         "name": existing.name,
                         "key": f"SPRINT-{existing.id}",
                         "state": sprint_state,
+                        "project_key": project_key or self.project_key,
+                        "board_id": board_id,
                         "message": f"Sprint '{name}' already exists and was reused."
                     }
              
@@ -855,6 +857,8 @@ class JiraManager:
                 "name": sprint.name,
                 "key": f"SPRINT-{sprint.id}",
                 "state": sprint_state,
+                "project_key": project_key or self.project_key,
+                "board_id": board_id,
                 "message": f"Sprint '{name}' created successfully."
             }
         
