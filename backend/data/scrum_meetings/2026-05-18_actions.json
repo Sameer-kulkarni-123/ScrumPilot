@@ -1,59 +1,25 @@
 [
   {
     "action": "complete_task",
-    "summary": "MAIN-50",
-    "description": "Stripe payment gateway API integration",
-    "assignee": "Sameer",
-    "status": "Done"
+    "summary": "MAIN-51",
+    "description": "payment form integration"
+  },
+  {
+    "action": "complete_task",
+    "summary": "MAIN-56",
+    "description": "strived webhook set-up"
   },
   {
     "action": "update_status",
-    "summary": "MAIN-51",
-    "description": "Payment form integration",
+    "summary": "MAIN-57",
+    "description": "email notifications",
     "assignee": "Sameer",
     "status": "In Progress"
   },
   {
     "action": "update_status",
     "summary": "MAIN-52",
-    "description": "Payment validation and error handling",
-    "assignee": "Sujay",
+    "description": "payment validation and error handling",
     "status": "In Progress"
-  },
-  {
-    "action": "update_status",
-    "summary": "MAIN-53",
-    "description": "Subscription management API integration",
-    "assignee": "Vanshaj",
-    "status": "In Progress"
-  },
-  {
-    "action": "update_status",
-    "summary": "MAIN-55",
-    "description": "Subscription cancellation handling",
-    "assignee": "Vanshaj",
-    "status": "In Progress"
-  },
-  {
-    "action": "update_status",
-    "summary": "MAIN-56",
-    "description": "Stripe webhook integration",
-    "assignee": "Sameer",
-    "status": "In Progress"
-  },
-  {
-    "action": "assign_task",
-    "summary": "Receipt generation",
-    "assignee": "Sujay"
-  },
-  {
-    "action": "assign_task",
-    "summary": "Notification testing",
-    "assignee": "Vanshaj"
-  },
-  {
-    "action": "add_comment",
-    "summary": "MAIN-53",
-    "comment": "Cancelled subscriptions should remain active until the billing period ends, then move to cancelled status."
   }
 ]

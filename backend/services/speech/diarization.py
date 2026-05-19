@@ -101,6 +101,7 @@ def prepare_diarization_session(
     allow_new_speaker_prompts: bool = False,
 ) -> DiarizationSession:
     """Run diarization and prepare unknown-speaker samples for review."""
+    print(f"\n[DIARIZATION] Diarization phase started for audio file: {audio_path}", flush=True)
     load_dotenv()
 
     audio_file = Path(audio_path)
@@ -108,8 +109,10 @@ def prepare_diarization_session(
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[DIARIZATION] Device detected: {device.upper()}", flush=True)
     logger.info("Preparing diarization on %s using %s", audio_path, device)
 
+    print("[DIARIZATION] Loading and preprocessing audio waveform...", flush=True)
     full_waveform, full_sample_rate = sf.read(str(audio_file), dtype="float32")
     mono_waveform = full_waveform.mean(axis=1) if full_waveform.ndim > 1 else full_waveform
 
@@ -118,9 +121,11 @@ def prepare_diarization_session(
         waveform_tensor = waveform_tensor.unsqueeze(0)
     audio_input = {"waveform": waveform_tensor, "sample_rate": full_sample_rate}
 
+    print("[DIARIZATION] Running PyAnnote speaker diarization segmentation (this may take a moment)...", flush=True)
     diarization = _load_diarization_pipeline(device)(audio_input)
     diarization = _normalise_diarization_output(diarization)
 
+    print("[DIARIZATION] Speaker segmentation complete. Identifying unique speakers...", flush=True)
     speaker_db = _load_speaker_db(speaker_db_path)
     speaker_map, embeddings, unknown_speakers = _build_speaker_map(
         diarization=diarization,
@@ -135,6 +140,7 @@ def prepare_diarization_session(
         sample_output_dir=sample_output_dir,
     )
 
+    print(f"[DIARIZATION] Speaker analysis complete. Found {len(speaker_map)} unique speaker(s).", flush=True)
     return DiarizationSession(
         audio_path=str(audio_file),
         diarization=diarization,
@@ -170,12 +176,18 @@ def transcribe_prepared_diarization(
     if changed_db:
         _save_speaker_db(session.speaker_db_path, speaker_db)
 
+    print(f"[TRANSCRIPTION] Initializing speech-to-text using OpenAI Whisper ({session.whisper_model})...", flush=True)
+    print(f"[TRANSCRIPTION] Running transcription on {session.device.upper()} (this may take a few moments)...", flush=True)
     asr_result = _load_asr_model(session.whisper_model, session.device).transcribe(session.audio_path)
+    
+    print("[TRANSCRIPTION] Speech-to-text completed. Aligning speaker segments with transcribed text...", flush=True)
     merged = _align_and_merge_segments(asr_result["segments"], session.diarization, speaker_map)
 
     if timestamped_output_path:
+        print(f"[TRANSCRIPTION] Saving timestamped transcript to: {timestamped_output_path}", flush=True)
         _write_timestamped_transcript(timestamped_output_path, merged)
 
+    print("[TRANSCRIPTION] Transcription & Diarization successfully completed!", flush=True)
     return "\n".join(f"{entry['speaker']}: {entry['text']}" for entry in merged)
 
 

@@ -34,7 +34,7 @@ pipeline = Pipeline.from_pretrained(
 pipeline.to(torch.device(device))
 
 print("Loading whisper model...")
-asr_model = whisper.load_model("base", device=device)
+asr_model = whisper.load_model("large-v3", device=device)
 
 encoder = VoiceEncoder(device=device)
 

@@ -4,7 +4,7 @@
     {
       "epic_id": "epic_002",
       "title": "Payment Gateway Integration",
-      "description": "Integration with a payment gateway (Stripe) for credit card payments, subscription management, and payment event handling",
+      "description": "Integration of a payment gateway, specifically Stripe, to enable credit card payments and subscription management",
       "wsjf_components": {
         "business_value": 10,
         "time_criticality": 9,
@@ -50,7 +50,7 @@
     {
       "epic_id": "epic_004",
       "title": "Email Notification System",
-      "description": "A system for sending transactional emails to users for important events",
+      "description": "A system to send transactional emails to users for important events, such as user signup, payment success, and password reset",
       "wsjf_components": {
         "business_value": 6,
         "time_criticality": 6,
@@ -87,11 +87,7 @@
         "analytics dashboards",
         "system health monitoring",
         "configuration management",
-        "real-time metrics",
-        "active users",
-        "revenue metrics",
-        "system performance",
-        "error logs"
+        "real-time analytics"
       ],
       "confidence": "high"
     }

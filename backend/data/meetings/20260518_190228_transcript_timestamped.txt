@@ -1,0 +1,4 @@
+[0.0s - 42.0s] Vaibhav: you Good morning, Summary. This is our daily stand-up first print one.
+[42.0s - 48.0s] Sameer: Good morning. Yesterday I completed payment form integration and strived webhook set-up.
+[48.0s - 54.0s] Vaibhav: Great. So the payment form integration is done and strived webhook integration is done.
+[54.0s - 86.0s] Sameer: Today I will work on receive generation and email notifications. Receive generation is in progress. Any blockers? No blockers, payment, validation and error handling is there in progress. Perfect. That's all for today. Thank you.

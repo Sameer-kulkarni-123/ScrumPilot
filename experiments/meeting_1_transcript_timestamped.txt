@@ -1,14 +1,14 @@
-[0.0s - 13.8s] sameer: I'm not working from 15 days a week. I have answers. He's expecting me to work on sales. How do I get? Fine.
-[13.8s - 20.8s] sujay: We're waiting. We are waiting. We are waiting. We are onboard.
-[20.8s - 33.8s] sameer: We are going to start. Good morning everyone. Let's start the stand up. I'll go first. Yes, sir. I completed the stand up. I'll go first. Yes, sir. I completed the login page. You are tasked. It's fully done and ready for review.
-[33.8s - 45.3s] vaibhav: Nice. I've been working on the API integration module. I'm still in the progress on that. Also, I think we should create a new task for writing up unit tests for authentication service.
-[45.3s - 61.0s] sujay: I agree with Wipe-Up on the test task. For my update, I finished the database command migration task yesterday. Today, I'm going to pick up the user profile page.
-[61.0s - 69.4s] sameer: Great. What about? Can you also take ownership of the payment gateway integration task? I'll assign that to you.
-[69.4s - 78.2s] vaibhav: Sure. I can handle that. Also, can someone add a comment on the API integration ticket that we need to use rest instead of GraphQL?
-[78.2s - 91.6s] sujay: I'll note that down. Okay. One more thing. The bug fix for the notification service is done. I completed that last night.
-[91.6s - 104.6s] sameer: Perfect. Let me also create a task for setting up the CI CD pipeline. That's becoming a priority. The description should be configured GitHub actions for automated testing and deployment to staging environment.
-[104.6s - 111.1s] vaibhav: Agreed. I think we should also mark the old deployment script task as done since you're moving to CI CD.
-[111.1s - 116.1s] sameer: Right. Good call. I think that's how it's everything. Let's sync up again tomorrow. Okay.
-[116.1s - 119.1s] sujay: Let's send the call. Yeah. I'll just comment on that.
-[119.1s - 120.1s] sameer: Okay.
-[120.1s - 140.1s] sujay: Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay. Okay.
+[0.0s - 13.7s] sameer: I'm not working from 15th May. I have answers. He's expecting me to work until May. Okay, okay. Fine, fine.
+[14.1s - 19.5s] sujay: We're waiting. We're waiting.
+[20.4s - 33.3s] sameer: Okay, joined. Let's start. Good morning, everyone. Let's start the stand-up. I'll go first. Yesterday, I completed the login page UI task. It's fully done and ready for review.
+[34.4s - 44.8s] vaibhav: Nice. I've been working on the API integration module. I'm still in the progress on that. Also, I think we should create a new task for writing up unit tests for authentication service.
+[48.7s - 59.8s] sujay: I agree with Vaibhav on the test task. For my update, I finished the database schema migration task yesterday. Today, I'm going to pick up the user. I'll go to the user profile page.
+[62.5s - 68.9s] sameer: Great, Vaibhav. Can you also take ownership of the payment gateway integration task? I'll assign that to you.
+[69.8s - 78.4s] vaibhav: Sure, I can handle that. Also, can someone add a comment on the API integration ticket that we need to use REST instead of GraphQL?
+[78.4s - 90.1s] sujay: I'll note that down. Oh, and one more thing. The bug fix for the notification service is done. I completed that last night.
+[91.6s - 104.0s] sameer: Perfect. Let me also create a task for setting up the CICD pipeline. That's becoming a priority. The description should be configured GitHub actions for automated testing and deployment to staging environment.
+[105.1s - 110.3s] vaibhav: Agreed. I think we should also mark the old deployment script task as done since we're moving to CICD.
+[111.6s - 115.6s] sameer: Right. Good call. I think that covers everything. Let's sync up again tomorrow.
+[117.1s - 118.5s] sujay: Okay. Let's end the call.
+[118.7s - 119.8s] sameer: Yeah.
+[121.0s - 178.7s] sujay: I'll just call it a day. Thanks. See you in the next episode. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye. Bye.
